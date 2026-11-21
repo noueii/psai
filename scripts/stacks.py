@@ -19,6 +19,8 @@ The home ($PSAI_HOME, else ~/.psai):
   psai stack list [--json]                 name, version, ref, mode, priority, workflows, overrides, warnings
   psai stack sync                          install everything stacks.yaml lists (a new machine)
   psai stack diff <name> [<path>]          the change since the pin, or an override against its original
+  psai stack override <stack>:<path> [--in <dir>]   copy a file into overrides/ (records .base.yaml) to change it
+  psai stack check <name>                  L0 + L2 for one stack with your overrides in place
 Adding a stack never runs its code: no install hooks, no migrations.
 """
 import argparse
@@ -427,6 +429,7 @@ def update(name=None, to=None, h=None):
             p = subprocess.run(["git", "-C", dest, "pull", "-q", "--ff-only"], capture_output=True, text=True)
             print(f"{e['name']}: dev, " + ("fast-forwarded" if p.returncode == 0 else f"not fast-forwarded: {p.stderr.strip()}"))
             e["commit"] = git(dest, "rev-parse", "HEAD", check=False)
+            report_drift(h, e["name"])
             continue
         git(dest, "fetch", "-q", "--tags", "origin", check=False)
         rng = " ".join(r["version"] for s in h.stacks for r in s.meta.get("requires") or [] if r.get("name") == e["name"])
@@ -444,6 +447,7 @@ def update(name=None, to=None, h=None):
         git(dest, "-c", "advice.detachedHead=false", "checkout", "-q", "--detach", commit)
         print(f"{e['name']}: {e.get('ref')} -> {target}")
         e.update(ref=target, commit=commit, version=str(meta.get("version")))
+        report_drift(h, e["name"])
     save_entries(h, ents)
     relink(res.Home(h.root))
     return 0
@@ -465,10 +469,13 @@ def listing(h=None, as_json=False):
             warn.append("missing here (psai stack sync)")
         elif meta and not fits(meta):
             warn.append(f"needs psai {meta.get('psai')}")
+        dr = drifted(h, e.get("name")) if os.path.exists(path) else []
+        if dr:
+            warn.append(f"{len(dr)} override(s) changed upstream (psai stack diff {e.get('name')} <path>)")
         rows.append({"name": e.get("name"), "version": meta.get("version", e.get("version")), "ref": e.get("ref"),
                      "mode": e.get("mode", "pinned"), "priority": st.priority if st else None, "workflows": len(wfs),
                      "exports": meta.get("exports") or {},
-                     "overrides": sum(len(fs) for _, _, fs in os.walk(ov)) if os.path.isdir(ov) else 0,
+                     "overrides": len(overrides_of(h, e.get("name", ""))),
                      "warnings": warn})
     if as_json:
         print(json.dumps(rows, indent=1))
@@ -526,6 +533,151 @@ def diff(name, path=None, h=None):
                            "--", *([path] if path else [])]).returncode
 
 
+# ---------- overrides (ADR 0011, section 6) ----------
+def _sha(path):
+    import hashlib  # noqa: PLC0415
+    try:
+        with open(path, "rb") as f:
+            return hashlib.sha256(f.read()).hexdigest()
+    except OSError:
+        return None
+
+
+def _base_path(h, stack, root=None):
+    return os.path.join(root or h.overlay_path, "overrides", stack, ".base.yaml")
+
+
+def bases(h, stack, root=None):
+    try:
+        with open(_base_path(h, stack, root)) as f:
+            return yaml.safe_load(f) or {}
+    except (OSError, yaml.YAMLError):
+        return {}
+
+
+def override(ref, h=None, root=None):
+    """Copy a stack's file into overrides/<stack>/<path> of the overlay (or of `root`, the overlay's stage worktree)
+    and record the stack's commit and the original's hash in .base.yaml, so a later update can say it changed.
+    Returns the override's path; an existing override is left as is."""
+    h = h or res.Home()
+    sname, rest = res.split_ref(ref)
+    if not sname or sname == res.OVERLAY:
+        raise StackError(f"name the stack: <stack>:<path> (your own files in {res.OVERLAY} are edited in place)")
+    if sname == "psai":
+        raise StackError("the framework's files can't be overridden; change psai by PR")
+    st = h.get(sname)
+    if st is None:
+        raise StackError(f"no stack {sname} installed")
+    path = rest.lstrip("/")
+    kind = res.kind_of(path)
+    if kind == "knowledge":
+        raise StackError("knowledge is never overridden: it is additive; capture-knowledge writes to your overlay")
+    if path in ("stack.yaml",):
+        raise StackError("a stack's identity (stack.yaml) can't be overridden; use your overlay's stack.yaml "
+                         "(models, disable, prefer, priority)")
+    src = os.path.join(st.path, path)
+    if not os.path.exists(src):
+        raise StackError(f"{sname}:{path} doesn't exist")
+    dst = os.path.join(root or h.overlay_path, "overrides", sname, path)
+    if os.path.exists(dst):
+        return dst
+    if os.path.isdir(src):  # a my-skill: the whole folder
+        shutil.copytree(src, dst, symlinks=True)
+    else:
+        os.makedirs(os.path.dirname(dst), exist_ok=True)
+        shutil.copy2(src, dst)
+    b = bases(h, sname, root)
+    b["stack"] = sname
+    b.setdefault("files", {})[path] = {"commit": git(st.path, "rev-parse", "HEAD", check=False) or None,
+                                       "sha256": _sha(src) if os.path.isfile(src) else _tree_sha(src)}
+    with open(_base_path(h, sname, root), "w") as f:
+        f.write("# What each override replaced: the stack's commit and the original's hash (psai stack update compares).\n")
+        yaml.safe_dump(b, f, sort_keys=True)
+    return dst
+
+
+def _tree_sha(d):
+    import hashlib  # noqa: PLC0415
+    hs = hashlib.sha256()
+    for dp, _, fs in sorted(os.walk(d)):
+        for f in sorted(fs):
+            p = os.path.join(dp, f)
+            hs.update(os.path.relpath(p, d).encode() + b"\0" + (_sha(p) or "").encode())
+    return hs.hexdigest()
+
+
+def overrides_of(h, stack):
+    """The override paths of one stack (relative to it), my-skill folders as one entry each."""
+    d = os.path.join(h.overlay_path, "overrides", stack)
+    out = []
+    for dp, dirs, fs in os.walk(d):
+        rel = os.path.relpath(dp, d)
+        parts = rel.split(os.sep)
+        if parts[0] == "my-skills" and len(parts) == 2:
+            out.append(rel)
+            dirs[:] = []
+            continue
+        out += [os.path.normpath(os.path.join(rel, f)) for f in fs if f != ".base.yaml"]
+    st = h.get(stack)
+    # cases next to an overridden workflow are the overlay's own, not an override of anything
+    return sorted(p for p in out if not (p.endswith(".cases.yaml") and st and not os.path.exists(os.path.join(st.path, p))))
+
+
+def drifted(h, stack):
+    """[(path, why)] for overrides whose original changed upstream since the override was made."""
+    st = h.get(stack)
+    if st is None:
+        return []
+    b = (bases(h, stack).get("files") or {})
+    out = []
+    for p in overrides_of(h, stack):
+        orig = os.path.join(st.path, p)
+        if not os.path.exists(orig):
+            out.append((p, "removed upstream"))
+            continue
+        now = _sha(orig) if os.path.isfile(orig) else _tree_sha(orig)
+        rec = (b.get(p) or {}).get("sha256")
+        if rec and rec != now:
+            out.append((p, "changed upstream"))
+    return out
+
+
+def report_drift(h, stack):
+    for p, why in drifted(h, stack):
+        print(f"{stack}:{p} {why} since you overrode it; diff with `psai stack diff {stack} {p}`")
+
+
+def effective(h, stack, dest):
+    """A copy of a stack with the overlay's overrides in place (and the cases next to them), for validation."""
+    st = h.get(stack)
+    shutil.copytree(st.path, dest, symlinks=True, ignore=shutil.ignore_patterns(".git"))
+    ov = os.path.join(h.overlay_path, "overrides", stack)
+    if os.path.isdir(ov):
+        shutil.copytree(ov, dest, dirs_exist_ok=True, ignore=shutil.ignore_patterns(".base.yaml"))
+    return dest
+
+
+def check_stack(name, h=None):
+    """L0 (content, refs through resolve) and L2 (simulate) for one installed stack, overrides in place of the
+    originals. 0 = pass."""
+    import harness  # noqa: PLC0415
+    import simulate  # noqa: PLC0415
+    import tempfile  # noqa: PLC0415
+    h = h or res.Home()
+    if h.get(name) is None:
+        raise StackError(f"no stack {name} installed")
+    with tempfile.TemporaryDirectory() as t:
+        d = effective(h, name, os.path.join(t, name)) if name != res.OVERLAY else h.overlay_path
+        errs = harness.validate(d, h) + (res.validate_stack(res.load_stack(d), overlay=name == res.OVERLAY)
+                                          if os.path.exists(os.path.join(d, "stack.yaml")) else [])
+        for e in errs:
+            print(f"  FAIL {name}: {e}")
+        n = len(overrides_of(h, name)) if name != res.OVERLAY else 0
+        print(f"  {'ok  ' if not errs else 'FAIL'} {name}: content and refs" + (f" ({n} override(s) in place)" if n else ""))
+        rc = simulate.main(d)
+    return 1 if errs or rc else 0
+
+
 def stack_main(argv):
     ap = argparse.ArgumentParser(prog="psai stack", description="Install and manage stacks (ADR 0011, section 11).")
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -544,6 +696,11 @@ def stack_main(argv):
     l_ = sub.add_parser("list", help="the installed stacks")
     l_.add_argument("--json", action="store_true")
     sub.add_parser("sync", help="install everything stacks.yaml lists (a new machine)")
+    o_ = sub.add_parser("override", help="copy a stack's file into your overlay's overrides/ to change it there")
+    o_.add_argument("ref", help="<stack>:<path>, e.g. acme:roles/reviewer.md")
+    o_.add_argument("--in", dest="root", help="the overlay folder to write in (e.g. its stage worktree)")
+    c_ = sub.add_parser("check", help="validate a stack with your overrides in place (L0 + L2)")
+    c_.add_argument("name")
     d_ = sub.add_parser("diff", help="a stack's change since its pin, or an override against its original")
     d_.add_argument("name")
     d_.add_argument("path", nargs="?")
@@ -559,6 +716,11 @@ def stack_main(argv):
             return listing(as_json=a.json)
         if a.cmd == "sync":
             return sync_all()
+        if a.cmd == "override":
+            print(override(a.ref, root=a.root))
+            return 0
+        if a.cmd == "check":
+            return check_stack(a.name)
         if a.cmd == "diff":
             return diff(a.name, a.path)
     except StackError as e:

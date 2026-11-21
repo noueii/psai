@@ -25,7 +25,7 @@ psai stack add ~/src/my-stack --dev       # link your working clone instead of a
 psai stack list | update [<name>] | remove <name> | diff <name> [<path>]
 psai stack sync                           # a new machine: install everything your overlay's stacks.yaml lists
 ```
-Adding a stack never runs its code. A release is a `vX.Y.Z` tag; a branch is never pinned. A stack's `requires:` are installed with it, one version each; a conflict is refused.
+To change one file of a stack, override it in your overlay instead of forking the stack: `psai stack override acme:roles/reviewer.md` copies it to `~/.psai/overlay/overrides/acme/roles/reviewer.md` for you to edit; `psai stack update` tells you when the original changes, and `psai stack check acme` validates the stack with your overrides in place. Adding a stack never runs its code. A release is a `vX.Y.Z` tag; a branch is never pinned. A stack's `requires:` are installed with it, one version each; a conflict is refused.
 
 `install.sh` also links the `psai` command into `~/.local/bin`: `psai status`, `psai doctor`, `psai sync`, `psai retro`, `psai update`, `psai adopt <skill>`, `psai check`, `psai context`, `psai graph`, `psai simulate`, `psai resolve`, `psai route`, `psai node`, `psai trace`, `psai check-diff`, `psai install`.
 

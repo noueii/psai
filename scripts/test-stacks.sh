@@ -141,6 +141,22 @@ ps adopt own-x --to mine-dev > /dev/null 2>&1
 check "adopt --to a dev stack moves it into that stack's my-skills/ and links it" bash -c "test -f '$wk/my-skills/own-x/SKILL.md' && test \"\$(readlink '$h/.claude/skills/own-x')\" = '$H/stacks/mine-dev/my-skills/own-x'"
 check "the registry has a stack column" bash -c "cd '$T' && HOME='$h' python3 '$ROOT/scripts/harness.py' skills --root '$H' | grep -E '^own-x +mine-dev '"
 
+echo "L1 psai new-stack, check, eval"
+ps new-stack acme --dir "$T/acme" --description "Acme's review workflows." > "$T/new.out" 2>&1 || { fail "new-stack"; cat "$T/new.out"; }
+check "new-stack copies the template and fills stack.yaml" bash -c "grep -q '^name: acme' '$T/acme/stack.yaml' && grep -q \"Acme's review workflows\" '$T/acme/stack.yaml' && ! grep -rq '__NAME__\|__PSAI__' '$T/acme' && test -f '$T/acme/.github/workflows/psai.yml'"
+check "new-stack's psai range is this major" bash -c "grep -q \"^psai: \\\">=\$(cut -d. -f1 < '$ROOT/VERSION').0 <\$((\$(cut -d. -f1 < '$ROOT/VERSION') + 1))\\\"\" '$T/acme/stack.yaml'"
+check "new-stack makes a git repo and adds it as a dev stack" bash -c "git -C '$T/acme' rev-parse HEAD && test \"\$(readlink '$H/stacks/acme')\" = '$T/acme' && grep -q 'name: acme' '$H/overlay/stacks.yaml'"
+check "a new stack passes psai check, by name and by path" bash -c "$(declare -f ps); T='$T' h='$h' ROOT='$ROOT'; ps check acme && ps check '$T/acme'"
+check "new-stack refuses a reserved name" bash -c "$(declare -f ps); T='$T' h='$h' ROOT='$ROOT'; ! ps new-stack nostack --dir '$T/x'"
+mkdir -p "$T/acme/workflows"; printf 'name: review\nwhen: Reviews.\nstart: a\nnodes:\n  a: {step: steps/nope.md, next: [{to: done}]}\n  done: {terminal: true}\n' > "$T/acme/workflows/review.yaml"
+check "psai check fails on a broken stack" bash -c "$(declare -f ps); T='$T' h='$h' ROOT='$ROOT'; ! ps check acme"
+check "psai check with no argument checks every installed stack" bash -c "$(declare -f ps); T='$T' h='$h' ROOT='$ROOT'; o=\"\$(ps check)\"; grep -q 'ok   nostack: content and refs' <<< \"\$o\" && grep -q 'FAIL acme' <<< \"\$o\""
+rm "$T/acme/workflows/review.yaml"
+printf 'name: acme-smoke\nlevel: L3\nfixture: textkit\ntask: Say hello.\nowner: { max_turns: 1 }\nexpect: {}\n' > "$T/acme/evals/scenarios/smoke.yaml"
+e="$(cd "$T" && HOME="$h" python3 "$ROOT/scripts/psai.py" eval acme --prepare-only 2>/dev/null | tail -1)"
+check "psai eval builds a temp home with the stack installed (and runs no agent here)" bash -c "test -f '$e/stacks/acme/stack.yaml' && test -f '$e/overlay/stack.yaml' && grep -q 'name: acme' '$e/overlay/stacks.yaml' && test \"\$(readlink '$e/framework')\" != ''"
+ps stack remove acme > /dev/null 2>&1
+
 echo "L1 psai stack remove, sync"
 check "remove refuses a stack another one requires" bash -c "$(declare -f ps); T='$T' h='$h' ROOT='$ROOT'; ! ps stack remove example"
 mkdir -p "$H/overlay/overrides/other/guides"; echo "# mine" > "$H/overlay/overrides/other/guides/private.md"

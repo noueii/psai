@@ -29,6 +29,7 @@ expect keys (all optional):
   no_workflow             no workflow node was entered
   role_used_skill <name>  a role agent (subagent) invoked the skill or read its SKILL.md (Claude Code)
   role_model {role: id}   the agent started that role's subagent with that model (Claude Code: the Agent tool's model)
+  first_question <regex>  the first fixed block the agent asked (kind: question) matches
   work_files [paths]      exist in the work repo
   answer_mentions [words] the final message mentions each (case-insensitive)
   roles_no_route          role agents (subagents) never invoked request-router or work, nor ran trace.sh, and the
@@ -148,6 +149,10 @@ def grade(expect, log, ctx):
             runs = sum(t.startswith("workflow ") for t in phase)
             add("role agents did not route", calls and not bad and runs == 1,
                 f"{len(calls)} subagent tool calls, {len(bad)} routing: {'; '.join(bad)[:300]}; workflow runs in trace: {runs}")
+    if expect.get("first_question"):
+        qs = [q for q in log.get("asked") or [] if q.startswith("question: ")]
+        add(f"first question matches /{expect['first_question']}/", qs and re.search(expect["first_question"], qs[0], re.I),
+            (qs[0] if qs else "no question asked")[:200])
     for role, mid in (expect.get("role_model") or {}).items():
         calls = log.get("agent_calls")
         if calls is None:

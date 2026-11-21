@@ -38,7 +38,7 @@ done
 check "skills/ is flat" test -z "$(find "$ROOT/skills" -mindepth 3 -name SKILL.md)"
 
 echo "L0 structure"
-missing="$(cd "$ROOT" && find . -type d \( -name .git -o -name .claude-plugin -o -name __pycache__ -o -name .skills-cache -o -name .state -o -path './skills/*' -o -path './my-skills/*' -o -path './evals/fixtures/*/*' -o -path './evals/results/*' \) -prune -o -type d -print \
+missing="$(cd "$ROOT" && find . -type d \( -name .git -o -name .github -o -name .claude-plugin -o -name __pycache__ -o -name .skills-cache -o -name .state -o -path './skills/*' -o -path './my-skills/*' -o -path './evals/fixtures/*/*' -o -path './evals/results/*' \) -prune -o -type d -print \
   | while read -r d; do [ -f "$d/README.md" ] || echo "$d"; done)"
 [ -z "$missing" ] && pass "every folder has a README.md" || fail "folders without README.md: $(echo $missing)"
 check "instructions/global.md is at most 120 words" test "$(wc -w < "$ROOT/instructions/global.md")" -le 120

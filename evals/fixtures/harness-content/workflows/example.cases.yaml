@@ -1,0 +1,16 @@
+- name: straight through
+  path: [do, check, approve, report, ready]
+- name: blocked escalates from do
+  take: { do: [blocked] }
+  path: [do, escalate]
+  asker: do
+- name: one round of changes
+  take: { check: [changes needed, done] }
+  path: [do, check, do, check, approve, report, ready]
+- name: the checker's loop is limited
+  take: { check: [changes needed, changes needed, changes needed] }
+  path: [do, check, do, check, do, check, escalate]
+  asker: check
+- name: human loops have no limit
+  take: { approve: [changes requested, changes requested, changes requested, approved] }
+  ends: ready

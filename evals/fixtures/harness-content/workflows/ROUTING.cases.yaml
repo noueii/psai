@@ -1,0 +1,2 @@
+- { name: a file change routes to example, answers: ["yes"], workflow: example }
+- { name: anything else escalates, answers: ["no"], escalate: true }

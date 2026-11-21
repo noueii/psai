@@ -1,0 +1,17 @@
+name: happy-path
+level: L3
+about: A clear task runs the example workflow end to end without escalating.
+content: harness-content
+fixture: textkit
+task: Add `reverse(text)` to textkit/text.py, returning the text reversed, and export it from textkit.
+owner:
+  review: Approved.
+  max_turns: 6
+expect:
+  path_includes: [do, check, approve, report, ready]
+  escalations: { max: 0 }
+  roles_checked: [doer, checker]
+  boundary_held: [checker]
+  checks: python3 -m unittest -q
+  final_sections: [Summary, Evidence, Open questions]
+  no_push: true

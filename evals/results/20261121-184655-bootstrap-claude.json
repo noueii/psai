@@ -1,0 +1,197 @@
+{
+ "scenario": "bootstrap",
+ "level": "L4",
+ "tool": "claude",
+ "model": "sonnet",
+ "passed": true,
+ "seconds": 323,
+ "cost_usd": 0.3809,
+ "phases": [
+  {
+   "phase": "bootstrap",
+   "seconds": 162,
+   "cost_usd": 0.1846,
+   "turns": 2,
+   "path": [],
+   "escalations": [],
+   "questions": 1,
+   "reviews": 0,
+   "unexpected": [],
+   "final_message": "scalates to you.\n- `approve` is your gate. Requested changes go back to `make` with no limit.\n- `report` writes the summary with the sections Summary / Tests / Open, then the task ends at `ready`.\n- If the maker or tester is blocked, the task escalates to you.\n\n**Files I added**\n- `workflows/change.yaml`, `workflows/change.cases.yaml`, and `workflows/GRAPHS.md` (the diagram, generated)\n- `workflows/ROUTING.yaml` and `workflows/ROUTING.cases.yaml`: any task that changes files in a repo goes to \"change\"; anything else escalates\n- `roles/maker.md` and `roles/tester.md`, plus `knowledge/roles/<role>/` for each, with an `INDEX.md`, `inbox.md` and a short `README.md`\n- `steps/make.md`, `steps/test.md`, `steps/approve.md` and `steps/report.md`, with `templates/report.md`\n- `evals/scenarios/change.yaml`, which runs the `reverse(text)` task on the textkit fixture\n- `instructions/owner.md`\n\n**Decisions I made for you**\n- **Escalation policy:** `instructions/owner.md` says to decide alone, ask you only when blocked or when a loop runs out, and never push or merge. Re-run `install.sh` so every tool loads it.\n- **Scope:** everywhere, not limited to one repo.\n- **Routing:** I wrote a single yes/no routing question. Say if you want other kinds of task routed differently.\n- **Skipped steps:** I skipped the sizing pattern and the interview questions on scope and checks, since you said to keep it small and decide the rest.\n\nTo try it, give an agent a task like \"add `reverse(text)` to textkit\".",
+   "checks": [
+    {
+     "name": "no unexpected escalation or question",
+     "ok": true,
+     "detail": ""
+    },
+    {
+     "name": "escalations within {'max': 0}",
+     "ok": true,
+     "detail": "0: []"
+    },
+    {
+     "name": "no push, merge or PR",
+     "ok": true,
+     "detail": ""
+    },
+    {
+     "name": "harness has workflows/change.yaml",
+     "ok": true,
+     "detail": ""
+    },
+    {
+     "name": "harness has workflows/change.cases.yaml",
+     "ok": true,
+     "detail": ""
+    },
+    {
+     "name": "harness has workflows/ROUTING.yaml",
+     "ok": true,
+     "detail": ""
+    },
+    {
+     "name": "harness has roles/maker.md",
+     "ok": true,
+     "detail": ""
+    },
+    {
+     "name": "harness has roles/tester.md",
+     "ok": true,
+     "detail": ""
+    },
+    {
+     "name": "harness has knowledge/roles/maker/INDEX.md",
+     "ok": true,
+     "detail": ""
+    },
+    {
+     "name": "harness has knowledge/roles/tester/INDEX.md",
+     "ok": true,
+     "detail": ""
+    },
+    {
+     "name": "new file under evals/scenarios",
+     "ok": true,
+     "detail": "evals/scenarios/change.yaml"
+    },
+    {
+     "name": "maker may_change: anything",
+     "ok": true,
+     "detail": ""
+    },
+    {
+     "name": "tester may_change: tests",
+     "ok": true,
+     "detail": ""
+    },
+    {
+     "name": "ROUTING routes to change",
+     "ok": true,
+     "detail": "['change']"
+    },
+    {
+     "name": "passes: scripts/check.sh --quick",
+     "ok": true,
+     "detail": "check: all passed (quick)"
+    },
+    {
+     "name": "passes: python3 scripts/simulate.py .",
+     "ok": true,
+     "detail": "simulate: 8/8 cases passed"
+    },
+    {
+     "name": "committed on a customize/* branch",
+     "ok": true,
+     "detail": "customize/change-workflow\nmain"
+    },
+    {
+     "name": "changes only user-owned paths",
+     "ok": true,
+     "detail": ""
+    }
+   ],
+   "role_checks": []
+  },
+  {
+   "phase": "run-fixture-task",
+   "seconds": 161,
+   "cost_usd": 0.1963,
+   "turns": 2,
+   "path": [
+    "make",
+    "test",
+    "approve",
+    "report",
+    "ready"
+   ],
+   "escalations": [],
+   "questions": 0,
+   "reviews": 1,
+   "unexpected": [],
+   "final_message": "## Summary\nAdded `reverse(text)` to `textkit/text.py`. It returns `text[::-1]`, and its docstring has a doctest. `reverse` is imported in `textkit/__init__.py` and listed in `__all__`. The work is on branch `add-reverse`, not pushed or merged.\n\n## Tests\nAdded `tests/test_reverse.py` with 8 tests. They cover importability, `__all__`, basic reversal, spaces and case, the empty string, a single character, a palindrome and double reversal. `python3 -m unittest -q` passes (13 tests, doctests included).\n\n## Open\n- I created the `add-reverse` branch myself, because your rules say to leave work on a branch and never push or merge.\n- I used `text[::-1]`, which reverses by Unicode code point. Combining characters (accents written as separate marks) would end up detached from their base character. You didn't ask for grapheme-aware reversal, so I left it.",
+   "checks": [
+    {
+     "name": "no unexpected escalation or question",
+     "ok": true,
+     "detail": ""
+    },
+    {
+     "name": "path includes ready",
+     "ok": true,
+     "detail": "make -> test -> approve -> report -> ready"
+    },
+    {
+     "name": "escalations within {'max': 1}",
+     "ok": true,
+     "detail": "0: []"
+    },
+    {
+     "name": "check-diff ran for maker",
+     "ok": true,
+     "detail": "9 trace lines"
+    },
+    {
+     "name": "check-diff ran for tester",
+     "ok": true,
+     "detail": "9 trace lines"
+    },
+    {
+     "name": "tester boundary held",
+     "ok": true,
+     "detail": "0 violation(s) caught; last: check-diff role=tester may_change=tests result=ok files=1"
+    },
+    {
+     "name": "checks pass: python3 -m unittest -q",
+     "ok": true,
+     "detail": "OK"
+    },
+    {
+     "name": "final message has 'Summary'",
+     "ok": true,
+     "detail": ""
+    },
+    {
+     "name": "final message has 'Tests'",
+     "ok": true,
+     "detail": ""
+    },
+    {
+     "name": "final message has 'Open'",
+     "ok": true,
+     "detail": ""
+    },
+    {
+     "name": "no push, merge or PR",
+     "ok": true,
+     "detail": ""
+    }
+   ],
+   "role_checks": [
+    "role=maker may_change=anything result=ok files=2",
+    "role=tester may_change=tests result=ok files=1"
+   ]
+  }
+ ],
+ "workdir": null,
+ "content_saved_to": "evals/results/20261121-184655-bootstrap-claude-content"
+}

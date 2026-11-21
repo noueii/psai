@@ -1,0 +1,5 @@
+{
+  "name": "psai",
+  "version": "2.0.0",
+  "description": "A tool-agnostic agent harness: a workflow engine, a guide to build your own workflows, and knowledge capture."
+}

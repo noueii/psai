@@ -27,7 +27,8 @@ nodes:
 - **Other node keys:**
   - `human: true`: a human gate; loops it drives have no limit;
   - `fan_out: [lens, ...]`: one role agent per lens;
-  - `skill: <name>`: use that skill for the step.
+  - `skill: <name>`: use that skill for the step; a skill node needs no `step:`, e.g. `retro: { skill: retro, next: [{ to: sync }] }`.
+- **Retro and sync:** `work` runs the `retro` skill after every workflow; a `retro` node only fixes its place. `sync` runs ONLY at a `sync` node (or when the owner asks). A typical tail: `handover → retro → sync → ready`.
 - **Special nodes:** `handoff: <workflow>` continues in another workflow.
 - **Edge keys:** `when`, `to`, `max`. An edge back to an earlier node is a loop: if neither it nor its node is human, it must have a limit (its own `max` or `defaults.max`).
 - **check.sh enforces:**

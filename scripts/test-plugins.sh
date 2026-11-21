@@ -8,6 +8,7 @@ set -uo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd -P)"
 T="$(mktemp -d)"
 trap 'rm -rf "$T"' EXIT
+export PSAI_STATE="$T/state"   # the ledger the plugins write: never this clone's own .state
 fails=0
 res() { if [ "$2" = 0 ]; then echo "  ok   $1"; else echo "  FAIL $1"; fails=$((fails + 1)); fi; }
 skip() { echo "  skip $1"; }
@@ -16,6 +17,11 @@ ROLEWANT='Do not run request-router or work'
 # role mode: the capture has the role text and not the routing line
 role_ok() { grep -Fq "$ROLEWANT" "$1" 2>/dev/null && ! grep -Fq "$WANT" "$1"; }
 NL='String.fromCharCode(10)'
+# the ledger: a record for this tool, opened by its plugin (and closed, when the tool reports the end)
+ledger_ok() { python3 -c "
+import glob, json, sys
+r = [json.load(open(f)) for f in glob.glob('$PSAI_STATE/sessions/*.json')]
+sys.exit(0 if [x for x in r if x.get('tool') == sys.argv[1]] else 1)" "$1"; }
 
 # Claude Code: run the SessionStart hook as the plugin would.
 mkdir -p "$T/claude"; ln -s "$ROOT" "$T/claude/.psai"
@@ -25,6 +31,10 @@ python3 -c "
 import json, sys; d = json.loads(sys.argv[1])['hookSpecificOutput']
 sys.exit(0 if d['hookEventName'] == 'SessionStart' and d['additionalContext'] == sys.argv[2] + '\n' else 1)" "$out" "$ctx"
 res "claude hook: SessionStart additionalContext is the live nudge" $?
+echo '{"session_id":"cl-1"}' | env -u PSAI_HOME -u PSAI_ROLE HOME="$T/claude" bash "$ROOT/plugins/claude/hooks/session-start.sh" >/dev/null
+echo '{"session_id":"cl-1"}' | env -u PSAI_HOME -u PSAI_ROLE HOME="$T/claude" bash "$ROOT/plugins/claude/hooks/session-end.sh"
+python3 -c "import json,sys; r=json.load(open('$PSAI_STATE/sessions/cl-1.json')); sys.exit(0 if r['tool']=='claude' and r.get('end') else 1)" 2>/dev/null
+res "claude hooks: SessionStart opens and SessionEnd closes a ledger record" $?
 for ev in SessionStart:PSAI_ROLE SubagentStart:subagent; do
   e="${ev%%:*}"
   if [ "${ev#*:}" = PSAI_ROLE ]; then o="$(env -u PSAI_HOME PSAI_ROLE=doer HOME="$T/claude" bash "$ROOT/plugins/claude/hooks/session-start.sh" "$e")"
@@ -50,6 +60,7 @@ if command -v pi >/dev/null; then
   grep -Fq "$WANT" "$h/cap" 2>/dev/null; res "pi extension: nudge in the system prompt" $?
   (cd "$h/w" && env -u PSAI_HOME PSAI_ROLE=doer HOME="$h" PSAI_CAPTURE="$h/cap-role" timeout 60 pi -p --no-session --model fake/m hi </dev/null >/dev/null 2>&1)
   role_ok "$h/cap-role"; res "pi extension: PSAI_ROLE session gets the role-mode nudge" $?
+  ledger_ok pi; res "pi extension: the session got a ledger record" $?
 else skip "pi not installed"; fi
 
 if command -v omp >/dev/null; then
@@ -62,6 +73,7 @@ if command -v omp >/dev/null; then
   done
   grep -Fq "$WANT" "$h/cap" 2>/dev/null; res "omp extension: nudge in the system prompt" $?
   role_ok "$h/capdoer"; res "omp extension: PSAI_ROLE session gets the role-mode nudge" $?
+  ledger_ok omp; res "omp extension: the session got a ledger record" $?
 else skip "omp not installed"; fi
 
 if command -v opencode >/dev/null; then
@@ -77,6 +89,7 @@ if command -v opencode >/dev/null; then
   done
   grep -Fq "$WANT" "$h/cap" 2>/dev/null; res "opencode plugin: nudge in the system prompt" $?
   role_ok "$h/capdoer"; res "opencode plugin: PSAI_ROLE session gets the role-mode nudge" $?
+  ledger_ok opencode; res "opencode plugin: the session got a ledger record" $?
 else skip "opencode not installed"; fi
 
 # Subagent detection, called directly with stand-ins for the host (no tool binary needed): an omp task child

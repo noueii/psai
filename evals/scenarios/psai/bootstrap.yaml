@@ -20,7 +20,7 @@ phases:
             Accepted if it has all of this, otherwise add what's missing and show me again: maker (may change
             anything) makes the change -> tester (may change tests only) adds tests from the task and runs them ->
             if tests fail, back to the maker, at most 2 times, then ask me -> I approve -> a summary with the
-            sections Summary / Tests / Open. Commit it on a customize/ branch; no PR, no push.
+            sections Summary / Tests / Open. Stage it; no branch, no PR, no push.
         - match: "scope|everywhere|this repo|this workflow only"
           answer: Everywhere.
         - match: "summary|handover|report|finish|end of a task"
@@ -44,7 +44,7 @@ phases:
       routes_to: [change]
       only_user_paths: true
       commands: ["scripts/check.sh --quick", "python3 scripts/simulate.py ."]
-      branch_prefix: customize/
+      staged: true
       escalations: { max: 0 }
       no_push: true
   - name: run-fixture-task

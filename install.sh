@@ -1,13 +1,15 @@
 #!/usr/bin/env bash
 # Install, refresh or remove psai for Claude Code, opencode, pi and omp.
-# Usage: ./install.sh [--dry-run] [--uninstall] [--adopt <skill>]    (PSAI_HOME overrides the link path, default ~/.psai)
+# Usage: ./install.sh [--dry-run] [--uninstall] [--adopt <skill>]    (PSAI_HOME overrides the link path, default ~/.psai;
+#        PSAI_BIN the folder for the `psai` command, default ~/.local/bin; PSAI_STATE the local state, default <clone>/.state)
 # Idempotent. Touches only its own links, plugin files, README-psai.md and plugin registration. Links psai's skills/,
 # your my-skills/ and the pinned skills.yaml packs (fetched into the git-ignored .skills-cache/) into ~/.claude/skills
 # and ~/.agents/skills. --adopt brings one unmanaged skill from a tool folder under psai. One injection path per tool:
-# a plugin that injects the live psai nudge (scripts/harness.py context). On upgrade it removes v1's import lines
-# and marked blocks, and the old base link if it points to a psai clone.
+# a plugin that injects the live psai nudge (scripts/harness.py context). Links the `psai` command, runs pending
+# migrations/ once per machine and records the installed commit. On upgrade it removes v1's import lines and blocks.
 set -euo pipefail
 
+if [ -n "${PSAI_EVAL:-}" ]; then echo "psai: eval run: install.sh never touches HOME here" >&2; exit 0; fi
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 H="${PSAI_HOME:-$HOME/.psai}"
 H="${H%/}"
@@ -18,6 +20,8 @@ STUB_MARK='// psai: managed by install.sh'
 START='<!-- harness:start -->'
 END='<!-- harness:end -->'
 CFG="${XDG_CONFIG_HOME:-$HOME/.config}"
+BIN="${PSAI_BIN:-$HOME/.local/bin}"
+BIN="${BIN%/}"
 
 DRY=0
 MODE=install
@@ -151,12 +155,11 @@ link_base() {
   do_ ln -s "$REPO" "$H"
 }
 
-remove_old_base() { # the pre-rename base link, only if it is a link to a psai clone
-  if [ "$OLD_H" != "$H" ] && [ -L "$OLD_H" ] && is_clone "$OLD_H"; then
-    say "unlink old base $OLD_H (now $H)"
-    do_ rm -f "$OLD_H"
-  fi
+remove_old_base() { # legacy: the pre-rename base link; migrations/0001 holds the logic
+  PSAI_LINK="$H" DRY_RUN="$DRY" bash "$REPO/migrations/0001-remove-old-harness-link.sh"
 }
+
+sync_py() { python3 "$REPO/scripts/sync.py" "$@" --root "$REPO"; }
 
 # ---------- skills ----------
 skills_py() { python3 "$REPO/scripts/harness.py" skills --root "$REPO" "$@"; }
@@ -359,11 +362,14 @@ install() {
   fetch_packs
   link_skills
   remove_legacy
-  remove_old_base
   has_claude && install_claude_plugin
   has_pi && link_file "$HOME/.pi/agent/extensions/psai.ts" "$H/plugins/pi/psai.ts"
   has_omp && link_file "$HOME/.omp/agent/extensions/psai.ts" "$H/plugins/omp/psai.ts"
   has_opencode && install_opencode_stub
+  link_file "$BIN/psai" "$H/scripts/psai.py"
+  case ":$PATH:" in *":$BIN:"*) ;; *) [ "$DRY" = 1 ] || echo "note: $BIN is not on your PATH; add it to run \`psai\`" >&2 ;; esac
+  sync_py migrate --link "$H" $([ "$DRY" = 1 ] && echo --dry-run) || echo "psai: a migration failed; it runs again next install" >&2
+  [ "$DRY" = 1 ] || sync_py installed --record > /dev/null
   echo "psai: install done$([ "$DRY" = 1 ] && echo ' (dry run)')"
 }
 
@@ -381,6 +387,7 @@ uninstall() {
   unlink_file "$HOME/.pi/agent/extensions/psai.ts"
   unlink_file "$HOME/.omp/agent/extensions/psai.ts"
   remove_opencode_stub
+  unlink_file "$BIN/psai"
   remove_old_base
   if [ -L "$H" ] && [ "$(readlink "$H")" = "$REPO" ]; then
     say "unlink $H"

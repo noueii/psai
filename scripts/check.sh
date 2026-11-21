@@ -7,7 +7,7 @@
 #   --upstream  also fail if the tree ships any user-owned file (run this in psai itself, not in a fork)
 #   <extra-root> also validate another harness root (L0 content checks + L2)
 set -uo pipefail
-unset PSAI_TRACE   # our own check-diff tests must not write into an eval run's trace
+unset PSAI_TRACE PSAI_STATE PSAI_EVAL   # our own tests must not write into an eval run's trace or this machine's state
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd -P)"
 FIX="$ROOT/evals/fixtures/harness-content"
@@ -23,6 +23,7 @@ check() { local msg="$1"; shift; if "$@" >/dev/null 2>&1; then pass "$msg"; else
 py() { python3 "$ROOT/scripts/$@"; }
 T="$(mktemp -d)"
 trap 'rm -rf "$T"' EXIT
+export PSAI_STATE="$T/state"   # any state a test writes stays in the temp dir (tests that need their own set it)
 
 echo "L0 skills"
 for md in "$ROOT"/skills/*/SKILL.md; do
@@ -37,7 +38,7 @@ done
 check "skills/ is flat" test -z "$(find "$ROOT/skills" -mindepth 3 -name SKILL.md)"
 
 echo "L0 structure"
-missing="$(cd "$ROOT" && find . -type d \( -name .git -o -name .claude-plugin -o -name __pycache__ -o -name .skills-cache -o -path './skills/*' -o -path './my-skills/*' -o -path './evals/fixtures/*/*' -o -path './evals/results/*' \) -prune -o -type d -print \
+missing="$(cd "$ROOT" && find . -type d \( -name .git -o -name .claude-plugin -o -name __pycache__ -o -name .skills-cache -o -name .state -o -path './skills/*' -o -path './my-skills/*' -o -path './evals/fixtures/*/*' -o -path './evals/results/*' \) -prune -o -type d -print \
   | while read -r d; do [ -f "$d/README.md" ] || echo "$d"; done)"
 [ -z "$missing" ] && pass "every folder has a README.md" || fail "folders without README.md: $(echo $missing)"
 check "instructions/global.md is at most 120 words" test "$(wc -w < "$ROOT/instructions/global.md")" -le 120
@@ -54,10 +55,16 @@ print('\n'.join(p)); sys.exit(1 if p else 0)")"; then
   check "$label: README diagrams up to date" py graph.py "$r" --check-readme
 done
 check "root README diagram up to date" py graph.py "$ROOT" --check-readme
+if [ -n "$FIX" ]; then  # the sync-tail overlay: the example workflow ending report -> retro -> sync -> ready (skill nodes)
+  st="$T/synctail"; mkdir -p "$st"; (cd "$ROOT" && git ls-files -co --exclude-standard -z | xargs -0 cp --parents -t "$st" 2>/dev/null)
+  cp -r "$FIX"/. "$st/"; cp -r "$ROOT/evals/fixtures/sync-tail/workflows" "$ROOT/evals/fixtures/sync-tail/steps" "$st/"
+  check "fixture + sync-tail: skill nodes without a step validate" python3 -c "import sys; sys.path.insert(0, '$ROOT/scripts'); import harness; sys.exit(1 if harness.validate('$st') + harness.check_layout('$st', '$ROOT/LAYOUT.md') else 0)"
+  check "fixture + sync-tail: simulates and its diagram is fresh" bash -c "python3 '$ROOT/scripts/simulate.py' '$st' >/dev/null && python3 '$ROOT/scripts/graph.py' '$st' --check-readme"
+fi
 # The base folder is ~/.psai (and <repo>/.psai/). Exempt: decision records (history), this file (it builds the old
-# layout to test the upgrade) and lines marked "legacy" (the installer's upgrade code).
+# layout to test the upgrade, as does test-sync.sh), migrations/ (upgrade code) and lines marked "legacy".
 old_paths="$(cd "$ROOT" && { git ls-files -co --exclude-standard 2>/dev/null || find . -type f ! -path './.git/*' | sed 's|^\./||'; } \
-  | grep -v -e '^docs/decisions/' -e '^scripts/check\.sh$' -e '^evals/results/' | while IFS= read -r x; do [ -f "$x" ] && printf '%s\0' "$x"; done \
+  | grep -v -e '^docs/decisions/' -e '^migrations/' -e '^scripts/check\.sh$' -e '^scripts/test-sync\.sh$' -e '^evals/results/' | while IFS= read -r x; do [ -f "$x" ] && printf '%s\0' "$x"; done \
   | xargs -0 grep -nIE '(^|[^[:alnum:]_])\.harness([^[:alnum:]_-]|$)' 2>/dev/null | grep -v legacy)"
 [ -z "$old_paths" ] && pass "no ~/.harness path left (the base folder is ~/.psai)" || { fail "old ~/.harness paths:"; printf '%s\n' "$old_paths" | sed 's/^/         /'; }
 
@@ -174,7 +181,7 @@ done
 I="$ROOT/install.sh"
 SKILLS="$(cd "$ROOT/skills" && ls -d */ | tr -d / | tr '\n' ' ')"
 snap() { (cd "$1" && find . \( -path ./.claude/plugins -o -path ./.claude/backups -o -name .claude.json -o -name '.claude.json.*' \) -prune -o \( -type f -o -type l \) -print0 | sort -z | xargs -0 -I{} sh -c 'printf "%s " "{}"; if [ -L "{}" ]; then readlink "{}"; else md5sum < "{}"; fi') ; }
-run() { env -u XDG_CONFIG_HOME -u PSAI_HOME HOME="$1" bash "$I" "${@:2}"; }
+run() { env -u XDG_CONFIG_HOME -u PSAI_HOME PSAI_STATE="$1/.psai-state" HOME="$1" bash "$I" "${@:2}"; }   # state per temp HOME
 has_cli() { command -v "$1" >/dev/null; }
 enabled() { python3 -c "import json,sys; s=json.load(open('$1/.claude/settings.json')); sys.exit(0 if (s.get('enabledPlugins') or {}).get('psai@psai') else 1)" 2>/dev/null; }
 
@@ -211,6 +218,8 @@ check "v1 pi file (only our block) removed" test ! -e "$h/.pi/agent/AGENTS.md"
 check "pi extension linked" test "$(readlink "$h/.pi/agent/extensions/psai.ts")" = "$h/.psai/plugins/pi/psai.ts"
 check "omp extension linked" test "$(readlink "$h/.omp/agent/extensions/psai.ts")" = "$h/.psai/plugins/omp/psai.ts"
 check "opencode stub imports the live plugin" grep -Fq "$h/.psai/plugins/opencode/psai.js" "$h/.config/opencode/plugin/psai.js"
+check "the psai command linked into ~/.local/bin and runs" bash -c "test \"\$(readlink '$h/.local/bin/psai')\" = '$h/.psai/scripts/psai.py' && HOME='$h' PSAI_STATE='$h/.psai-state' '$h/.local/bin/psai' status | grep -q '^install: matches HEAD'"
+check "migrations recorded once; installed commit recorded" bash -c "grep -q 0001-remove-old-harness-link '$h/.psai-state/migrations.json' && grep -q \"\$(git -C '$ROOT' rev-parse HEAD)\" '$h/.psai-state/installed.json'"
 if has_cli claude; then
   check "claude plugin psai@psai enabled, marketplace at ~/.psai" bash -c "$(declare -f enabled); enabled '$h' && grep -q '\"path\": \"$h/.psai\"' '$h/.claude/settings.json'"
 else echo "  skip claude plugin install (claude CLI not found)"; fi
@@ -228,6 +237,11 @@ while IFS= read -r line; do
   case "$line" in "  ok   "*) pass "${line#  ok   }" ;; "  FAIL "*) fail "${line#  FAIL }" ;; "  skip "*) echo "$line" ;; esac
 done < <("$ROOT/scripts/test-plugins.sh" 2>/dev/null)
 
+echo "L1 sync, retro, ledger and migrations (no AI, no network; scripts/test-sync.sh)"
+while IFS= read -r line; do
+  case "$line" in "  ok   "*) pass "${line#  ok   }" ;; "  FAIL "*) fail "${line#  FAIL }" ;; "  skip "*) echo "$line" ;; "L1 "*) echo "  -- ${line#L1 }" ;; esac
+done < <("$ROOT/scripts/test-sync.sh" 2>/dev/null)
+
 echo "L1 uninstall"
 run "$h" --uninstall --dry-run > /dev/null 2>&1
 check "uninstall dry-run changes nothing" test "$after" = "$(snap "$h")"
@@ -235,6 +249,7 @@ run "$h" --uninstall > /dev/null 2>&1 || fail "uninstall exited non-zero"
 check "~/.psai removed" test ! -e "$h/.psai" -a ! -L "$h/.psai"
 check "no harness links left" test -z "$(find "$h/.claude/skills" "$h/.agents/skills" "$h/.pi/agent/extensions" "$h/.omp/agent/extensions" -maxdepth 1 -type l)"
 check "opencode stub removed" test ! -e "$h/.config/opencode/plugin/psai.js"
+check "psai command unlinked" test ! -L "$h/.local/bin/psai"
 has_cli claude && check "claude plugin removed" bash -c "$(declare -f enabled); ! enabled '$h'"
 check "owner content survives" bash -c "grep -qx 'keep me' '$h/.claude/CLAUDE.md' && grep -qx '# owner rules' '$h/.config/opencode/AGENTS.md'"
 check "foreign skill survives" test -f "$h/.agents/skills/foreign/SKILL.md"
@@ -324,11 +339,11 @@ check "uninstall removes skill links and README-psai.md, keeps unmanaged and my-
 
 echo "L1 PSAI_HOME overrides the link path"
 h="$T/custom"; c="$h/tools/psai"; mkdir -p "$h/.pi/agent"
-PSAI_HOME="$c" env -u XDG_CONFIG_HOME HOME="$h" bash "$I" > /dev/null 2>&1
+PSAI_HOME="$c" PSAI_STATE="$h/.psai-state" env -u XDG_CONFIG_HOME HOME="$h" bash "$I" > /dev/null 2>&1
 check "link made at \$PSAI_HOME, not ~/.psai" bash -c "test \"\$(readlink '$c')\" = '$ROOT' && test ! -e '$h/.psai'"
 check "skills and pi extension point through \$PSAI_HOME" bash -c "test \"\$(readlink '$h/.agents/skills/work')\" = '$c/skills/work' && test \"\$(readlink '$h/.pi/agent/extensions/psai.ts')\" = '$c/plugins/pi/psai.ts'"
 check "nudge shows \$PSAI_HOME paths" bash -c "PSAI_HOME='$c' HOME='$h' bash '$ROOT/plugins/claude/hooks/session-start.sh' | grep -Fq '$c/skills/request-router/SKILL.md'"
-PSAI_HOME="$c" env -u XDG_CONFIG_HOME HOME="$h" bash "$I" --uninstall > /dev/null 2>&1
+PSAI_HOME="$c" PSAI_STATE="$h/.psai-state" env -u XDG_CONFIG_HOME HOME="$h" bash "$I" --uninstall > /dev/null 2>&1
 check "uninstall removes the \$PSAI_HOME link and its links" bash -c "test ! -L '$c' && test ! -L '$h/.agents/skills/work' && test ! -L '$h/.pi/agent/extensions/psai.ts'"
 
 echo "L1 owner rules reach the nudge"

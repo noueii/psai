@@ -27,9 +27,9 @@ psai is meant to be forked. The **Owner** column says who owns each path:
 | the knowledge index | `knowledge/INDEX.md` | one line per file | you |
 | an eval scenario for your workflow | `evals/scenarios/<name>.yaml` | see evals/README.md (don't reuse an upstream name) | you |
 | a rule for one repo only | `<repo>/.psai/<same path as above>` | same format; created on first use; wins over the shared file | you |
-| the machinery | `skills/`, `plugins/`, `scripts/`, `install.sh`, `evals/` (except your scenarios), `docs/`, `.claude-plugin/` | | upstream |
+| the machinery | `skills/`, `plugins/`, `scripts/`, `migrations/`, `install.sh`, `evals/` (except your scenarios), `docs/`, `.claude-plugin/` | | upstream |
 | the core instructions and this map | `instructions/global.md`, `LAYOUT.md`, every `README.md` | | upstream |
 
-Folder READMEs (`<folder>/README.md`) describe each folder and are always allowed. `.skills-cache/` holds the fetched `skills.yaml` entries; install.sh writes it and git ignores it.
+Folder READMEs (`<folder>/README.md`) describe each folder and are always allowed. `.skills-cache/` holds the fetched `skills.yaml` entries; install.sh writes it and git ignores it. `.state/` is this machine's local state (`$PSAI_STATE` moves it): the session ledger, the stage worktree where changes wait for the retro's or sync's PR, retro reports, the install and migration records and the drift baseline. Git ignores it and it is never shared.
 
 Precedence, most specific wins: `<repo>/.psai/` > the step or role and its `read:` files > `instructions/owner.md` > `instructions/global.md`.

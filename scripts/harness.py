@@ -137,7 +137,8 @@ def validate(root):
                     errs.append(f"{where}: {nid}: handoff to missing workflow {n['handoff']!r}")
                 continue
             if "step" not in n:
-                errs.append(f"{where}: {nid}: missing step")
+                if not n.get("skill"):  # a skill node (e.g. retro, sync) may stand without a step
+                    errs.append(f"{where}: {nid}: missing step")
             elif not exists(n["step"]):
                 errs.append(f"{where}: {nid}: step {n['step']} does not exist")
             if n.get("role") and not exists(f"roles/{n['role']}.md"):
@@ -267,7 +268,16 @@ def context(root, shown=None):
         lines.append(f"- {wf.get('name', os.path.basename(path)[:-5])}: {' '.join(str(wf.get('when', '')).split())}")
     if not wfs:
         lines.append("- none yet (customize-harness creates the first one)")
-    lines += ["", "To add or change a skill, use customize-harness."]
+    lines += ["", "To add or change a skill, use customize-harness.",
+              "When a task outside a workflow is done and you captured knowledge or staged a change, run the retro skill."]
+    try:
+        import ledger  # noqa: PLC0415
+        pend = len(ledger.pending_retro(root))
+    except Exception:  # noqa: BLE001 - the nudge must never fail on the local state
+        pend = 0
+    if pend:
+        lines.append(f"{pend} earlier session(s) ended without a retro: run the retro skill once for them "
+                     f"(`psai retro gather`, then finish with --pending).")
     try:
         n = sum(1 for s in skillreg.registry(root).values() if s["unmanaged"])
     except Exception:  # noqa: BLE001 - the nudge must never fail on a broken skills.yaml

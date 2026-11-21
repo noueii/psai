@@ -19,6 +19,11 @@ expect keys (all optional):
   owner_rules_mention []  instructions/owner.md mentions each
   commands [cmds]         pass in the harness copy
   branch_prefix           the harness copy has a commit on a branch with this prefix
+  staged                  customize-harness staged its work (stage worktree, or a psai/ branch the retro built from
+                          it) and made no other branch
+  branches {prefix: n}    the harness copy has exactly n local branches starting with each prefix
+  retro_findings          the final message has a Retro section with findings ranked [high]/[medium]/[low]
+  no_sync                 the sync skill never ran: no psai/sync- branch, no last sync, no sync command in the run
   only_user_paths         the harness changes touch only paths LAYOUT.md gives to the user (new READMEs allowed)
   router_invoked          the agent used the request-router skill (Skill tool or reading its SKILL.md)
   no_workflow             no workflow node was entered
@@ -149,6 +154,24 @@ def grade(expect, log, ctx):
         else:
             hit = [c for c in calls if re.search(rf'"skill": "([^"]*:)?{re.escape(n)}"|{re.escape(n)}/SKILL\.md', c)]
             add(f"a role used {n}", hit, f"{len(calls)} subagent tool calls")
+    if expect.get("staged"):
+        st = ctx.get("staged") or {}
+        add("staged, no other branch", (st.get("stage") or st.get("branches")) and not st.get("other"), str(st)[:300])
+    brs = ctx.get("branches") or []
+    for pre, n in (expect.get("branches") or {}).items():
+        got = [b for b in brs if b.startswith(pre)]
+        add(f"{n} branch(es) {pre}*", len(got) == n, ", ".join(brs))
+    if expect.get("retro_findings"):
+        m = re.search(r"^#+\s*Retro\b(.*)", final, re.M | re.I | re.S)
+        add("final message has ranked retro findings", m and re.search(r"\[(high|medium|low)\]", m.group(1), re.I),
+            (m.group(0)[:300] if m else final[-300:]))
+    if expect.get("no_sync"):
+        t = log.get("text") or ""
+        sj = os.path.join(h, ".state", "sync.json")
+        last = (yaml.safe_load(open(sj)) or {}).get("last_sync") if os.path.exists(sj) else None
+        cmd = re.search(r'"command": "[^"]*psai(\.py)? sync (check|update|pr|run|drift)|"skill": "[^"]*\bsync"|skills/sync/SKILL\.md', t)
+        add("sync never ran", not any(b.startswith("psai/sync-") for b in brs) and not last and not cmd,
+            f"last_sync={last}; command={cmd.group(0) if cmd else None}")
     for f in expect.get("work_files", []):
         add(f"work repo has {f}", os.path.exists(os.path.join(w, f)))
     if expect.get("no_workflow"):

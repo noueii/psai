@@ -1,0 +1,21 @@
+name: retro-sync
+level: L3
+about: >-
+  The example workflow ends report -> retro -> sync -> ready (the sync-tail overlay). The retro stages and leaves the
+  PR to sync, which finds the machine out of sync only by what was captured and builds exactly ONE local
+  psai/sync- branch carrying the retro report. No psai/retro- branch, nothing pushed.
+content: [harness-content, sync-tail]
+fixture: textkit
+task: Add `reverse(text)` to textkit/text.py, returning the text reversed, and export it from textkit.
+owner:
+  review: >-
+    Approved. One thing for the future: every new public function I get must have a doctest example in its
+    docstring. Please remember that.
+  max_turns: 6
+expect:
+  path_includes: [do, check, approve, report, retro, sync, ready]
+  escalations: { max: 0 }
+  checks: python3 -m unittest -q
+  retro_findings: true
+  branches: { "psai/sync-": 1, "psai/retro-": 0 }
+  no_push: true

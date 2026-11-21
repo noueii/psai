@@ -1,5 +1,5 @@
 {
   "name": "psai",
-  "version": "2.0.0",
-  "description": "Injects the live psai router (global.md, owner.md, your workflows) into every session at start."
+  "version": "2.1.0",
+  "description": "Injects the live psai router (global.md, owner.md, your workflows) into every session at start, and keeps the local session ledger."
 }

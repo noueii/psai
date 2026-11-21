@@ -4,6 +4,7 @@
 # - the move doesn't follow the workflow (not an edge from the previous node, nor on_exhaust, nor back to the
 #   node that escalated, nor a new run at `start`);
 # - the previous node had a role and check-diff.sh hasn't run for it since.
+# It also adds the workflow run and each escalation to the session ledger.
 # The trace file is $PSAI_TRACE, or <git-dir>/psai-trace. check-diff.sh writes to the same file.
 set -euo pipefail
 wf="${1:?workflow name required}"
@@ -15,9 +16,13 @@ file="$top/.psai/workflows/$wf.yaml"
 [ -f "$file" ] || file="$H/workflows/$wf.yaml"
 [ -f "$file" ] || { echo "trace.sh: no workflow $wf" >&2; exit 2; }
 touch "$trace"
-python3 - "$file" "$wf" "$node" "$trace" <<'EOF'
+python3 - "$file" "$wf" "$node" "$trace" "$H" <<'EOF'
 import sys, yaml
-path, wf_name, node, trace = sys.argv[1:]
+path, wf_name, node, trace, h = sys.argv[1:]
+def ledger(*args):  # the session ledger (scripts/ledger.py): best-effort
+    import os, subprocess
+    if os.path.exists(f"{h}/scripts/ledger.py"):
+        subprocess.run([sys.executable, f"{h}/scripts/ledger.py", *args], capture_output=True)
 wf = yaml.safe_load(open(path))
 nodes = wf["nodes"]
 if node not in nodes:
@@ -56,7 +61,10 @@ else:
         sys.exit(f"trace.sh: a run of {wf_name} starts at {wf['start']!r}, not {node!r}")
     with open(trace, "a") as f:
         f.write(f"workflow {wf_name}\n")
+    ledger("workflow", wf_name)
 with open(trace, "a") as f:
     f.write(f"node {node}\n")
+if "return" in (nodes[node] or {}):
+    ledger("escalation")
 print(f"[harness] node: {node}")
 EOF

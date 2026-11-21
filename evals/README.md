@@ -14,7 +14,8 @@ evals/run.sh --tool all                         # Claude Code and omp
 `driver.py` builds a throwaway directory per run:
 - **harness copy:** a copy of this harness without the upstream scenarios and graders (the agent never sees the expected answers), with the scenario's `content` overlaid;
 - **fixture repo copy:** its `origin` is a local bare repo;
-- **`gh` shim:** refuses every call.
+- **`gh` shim:** refuses every call; a `psai` shim runs the copy's command;
+- **state:** the copy's `.state/` records it as installed with migrations done, plus a drift baseline of the real HOME (read only). `PSAI_EVAL=1` makes install.sh and adopt refuse, so nothing ever touches the real HOME.
 
 It then starts the tool headless with the harness loaded for that run only, through the same plugin a real install uses:
 - **Claude Code:** `--plugin-dir plugins/claude` (the SessionStart nudge) plus a throwaway plugin holding the skills, `--setting-sources project`, `--no-session-persistence`;

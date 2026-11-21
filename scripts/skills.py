@@ -464,6 +464,9 @@ def main(argv):
     if a.cmd == "adopt":
         if len(a.args) != 1:
             ap.error("adopt takes one skill name")
+        if os.environ.get("PSAI_EVAL") and not a.dry_run:
+            print("psai: eval run: adopt never moves skills out of the real HOME", file=sys.stderr)
+            return 1
         return adopt(root, a.args[0], dry=a.dry_run, ref=a.ref)
     if a.cmd == "brief":
         if not a.args:

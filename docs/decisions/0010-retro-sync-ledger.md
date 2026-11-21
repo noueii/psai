@@ -8,3 +8,4 @@
 - Decision: one `psai` command (`scripts/psai.py`, linked as `~/.local/bin/psai`) with install, update, status, doctor, sync, retro, adopt, skills, ledger, check, context, graph, simulate. The existing scripts stay as its implementations.
 - Why: the owner wants every task to teach the harness, reviewed as one PR, without background jobs or surprise network calls.
 - Source: PR #4 brief; `scripts/check.sh` (L0/L1 sync, ledger, migrations), evals `retro` and `retro-sync`.
+- Note (2026-11-22, [0011](0011-framework-and-stacks.md) section 14): reworked for stacks. The retro files each finding by target (your overlay, a dev stack, or a suggestion for a pinned stack's author, opened only on a yes) and builds one PR per target repo; stages are per target (`state/stage/<stack>/`); sync checks framework and stack releases instead of merging an upstream fork; `psai update` fast-forwards the overlay (inbox union) and the framework.

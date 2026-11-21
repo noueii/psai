@@ -31,9 +31,9 @@ Append to the end of the inbox, creating it (and its folder's `INDEX.md`) with a
 Use `proposed-rule` for anything you think should change future work. It stays a proposal until the owner accepts it.
 
 ## Promote (at the retro, by PR only)
-Inbox entries stay as local, uncommitted edits; nothing goes to GitHub while a task runs. The retro skill, at the end of the task, promotes stable entries in the stage worktree (`psai sync stage`), never in the live setup:
+Inbox entries stay as local, uncommitted edits; nothing goes to GitHub while a task runs. The retro skill, at the end of the task, promotes stable entries in your overlay's stage worktree (`psai stage`), never in the live setup:
 - a fact goes to `knowledge/facts/<topic>.md`;
 - a decision goes to `knowledge/decisions/YYYY-MM-DD-<slug>.md`;
 - an accepted proposed rule goes into a guide, role or step, using `customize-harness`.
 
-It updates `knowledge/INDEX.md` there and deletes the promoted entries from the live inbox; the retro's one PR (or sync's) carries it all. The owner merges it.
+It updates `knowledge/INDEX.md` there and deletes the promoted entries from the live inbox; the retro's PR on your overlay (or sync's) carries it all. The owner merges it.

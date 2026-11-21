@@ -2,11 +2,12 @@
 """psai: the one command. install.sh links it as ~/.local/bin/psai ($PSAI_BIN overrides the folder).
 
   psai install [--dry-run|--uninstall]   run install.sh
-  psai update                             fast-forward the live clone (ff-only, keeps inbox entries), then re-install
+  psai update [--force]                   fast-forward your overlay (keeps inbox entries) and the framework, re-install
   psai status                             one screen: version, install, pending retro, unsynced, staged, drift, last sync
   psai doctor                             status, plus per tool: version, plugin loaded, skills missing or unmanaged
   psai sync [run|check|update|drift|baseline|stage|pr|migrate]   see scripts/sync.py (the sync skill drives it)
-  psai retro [gather|finish]              see scripts/retro.py (the retro skill drives it)
+  psai stage [<stack>]                    print (and create) a target's stage worktree: your overlay, or a dev stack
+  psai retro [gather|finish|suggest]      see scripts/retro.py (the retro skill drives it)
   psai adopt <skill> [--to <dev stack>]   bring an unmanaged skill into your overlay (or a stack you author)
   psai skills [list|check|brief|...]      the live skill registry
   psai ledger [list|show|...]             the local session ledger
@@ -68,18 +69,34 @@ def lines_status(r, fetch=False):
                    + ("" if fetch else " (no fetch; `psai sync check` fetches)"))
     else:
         out.append("update: no remote branch to follow")
-    n_up, _ = sync.upstream_ahead(r)
-    if n_up:
-        out.append(f"upstream: {n_up} new commit(s) not yet merged into your fork")
     recs = ledger.records(r)
     pend = [x["id"] for x in recs if x.get("end") and x.get("retro_pending")]
     uns = [x["id"] for x in recs if ledger.unsynced(x)]
     out.append(f"sessions: {len(recs)} recorded, {len([x for x in recs if not x.get('end')])} open, "
                f"{len(pend)} waiting for a retro, {len(uns)} unsynced")
     inbox = sum(ledger.inbox_counts(r).values())
-    ch, skipped = sync.pending_changes(r)
-    out.append(f"knowledge inbox: {inbox} entr{'y' if inbox == 1 else 'ies'}; staged or captured, not in a PR: {len(ch)} file(s)"
+    pend = sync.all_pending(r)
+    _, skipped = sync.pending_changes(r)
+    out.append(f"knowledge inbox: {inbox} entr{'y' if inbox == 1 else 'ies'}; staged or captured, not in a PR: "
+               + (", ".join(f"{n} {len(c)} file(s)" for n, c in pend.items()) or "0 file(s)")
                + (f"; upstream-owned files edited locally: {len(skipped)}" if skipped else ""))
+    h = ledger.home(r)
+    if not h.compat:
+        import resolve  # noqa: PLC0415
+        import stacks  # noqa: PLC0415
+        fwv = resolve.framework_version(h.framework)
+        for e in stacks.entries(h):
+            st = h.get(e.get("name"))
+            meta = st.meta if st else {}
+            rng = meta.get("psai", "")
+            try:
+                ok = resolve.in_range(fwv, rng) if rng else True
+            except ValueError:
+                ok = False
+            dr = stacks.drifted(h, e.get("name")) if st and os.path.exists(st.path) else []
+            out.append(f"stack {e.get('name')}: {meta.get('version', e.get('version', '?'))} at {e.get('ref') or e.get('mode')}"
+                       f" ({e.get('mode', 'pinned')}); {'in range' if ok else 'needs psai ' + rng}"
+                       + (f"; {len(dr)} override(s) changed upstream" if dr else ""))
     out.append(f"retro reports waiting for a PR: {len(sync.reports(r))}")
     mig = sync.pending_migrations(r)
     out.append(f"migrations pending: {', '.join(os.path.basename(m) for m in mig) or 'none'}")
@@ -167,6 +184,8 @@ def main(argv):
         return sync.main(["update", *rest])
     if cmd == "sync":
         return sync.main(rest)
+    if cmd == "stage":  # psai stage [<stack>]: a target's stage worktree (your overlay by default)
+        return sync.main(["stage", "--stack", rest[0]] if rest else ["stage"])
     if cmd == "retro":
         import retro  # noqa: PLC0415
         return retro.main(rest)

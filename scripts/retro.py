@@ -4,9 +4,14 @@
   gather [--session ID]   print the facts of the run: the ledger record, the workflow trace (path, loops that hit
                           their limit, check-diff rejections, escalations, unused nodes), the inbox entries added
                           this session, what's staged, always-loaded file sizes, time and tokens.
-  finish --report FILE    save the report, mark the session's retro done, then build the ONE PR with everything from
-                          the task (`sync.build_pr(kind=retro)`), unless the running workflow still has a sync node
-                          ahead: then sync builds the PR and carries this report.
+  finish --report FILE    save the report, mark the session's retro done, then build one PR per target repo with
+                          everything from the task (`sync.build_prs(kind=retro)`: your overlay, each dev stack you
+                          touched), unless the running workflow still has a sync node ahead: then sync builds them.
+  suggest <stack> [--note TEXT] [--open [--local]]
+                          a pinned stack's flaw (ADR 0011, section 7): draft a suggestion for its author from your
+                          overlay's overrides of it (state/suggestions/<stack>/<date>.md, with the diff). --open, only
+                          after the owner said yes, builds a branch in a clone of the stack with the change and, unless
+                          --local, forks the repo and opens the PR to its author with gh.
 """
 import argparse
 import datetime
@@ -156,13 +161,20 @@ def gather(root, sid=None):
         out.append("- no workflow ran in this repo")
     ents = new_entries(root, rec)
     out += ["", f"## Inbox entries added this session ({len(ents)})"] + (ents or ["- none"])
-    ch, skipped = sync.pending_changes(root)
-    out += ["", f"## Staged or captured, not yet in a PR ({len(ch)})"] + [f"- {p}" + (" (deleted)" if s is None else "")
-                                                                         for p, s in sorted(ch.items())]
+    pend = sync.all_pending(root)
+    _, skipped = sync.pending_changes(root)
+    out += ["", f"## Staged or captured, not yet in a PR ({sum(len(c) for c in pend.values())})"]
+    for n, ch in pend.items():
+        out += [f"- [{n}] {p}" + (" (deleted)" if s is None else "") for p, s in sorted(ch.items())]
+    h = ledger.home(root)
+    if not h.compat:
+        out += ["", "## Where findings go (targets)", "- your overlay (nostack): your preferences, environment, knowledge"]
+        out += [f"- {s.name}: {'dev: you author it; stage in `psai stage ' + s.name + '`' if s.mode == 'dev' else 'pinned: an override in your overlay, plus a suggestion for its author (`psai retro suggest ' + s.name + '`)'}"
+                for s in h.stacks]
     if skipped:
         out.append(f"- upstream-owned files edited locally (never PR'd from here): {', '.join(skipped)}")
     proj = (rec or {}).get("project") or ledger.project_of(None)
-    loaded = [("instructions/global.md", os.path.join(root, "instructions", "global.md")),
+    loaded = [("instructions/global.md", os.path.join(sync.framework_of(root), "instructions", "global.md")),
               ("instructions/owner.md", os.path.join(root, "instructions", "owner.md"))]
     loaded += [(os.path.relpath(p, proj), p) for p in (os.path.join(proj, n) for n in ("CLAUDE.md", "AGENTS.md")) if os.path.exists(p)]
     nudge = len(harness.context(root).split())
@@ -183,16 +195,96 @@ def finish(root, report, sid=None, pending=False, local=False):
         for r in ledger.pending_retro(root):
             ledger.update(r["id"], root, retro=True)
     if sync_ahead(root):
-        print("psai retro: report saved; a sync node follows in this workflow, so sync builds the one PR and carries it")
+        print("psai retro: report saved; a sync node follows in this workflow, so sync builds the PRs and carries it")
         return 0
-    res = sync.build_pr(root, "retro", "", title=None, local=local)
+    res = sync.build_prs(root, "retro", "", title=None, local=local)
     sync._print_pr(res, "retro")
+    return 0
+
+
+def suggest(root, stack, note="", do_open=False, local=False):
+    """Draft (and, when asked, open) a suggestion for a pinned stack's author from the overlay's overrides of it, in
+    the live overlay or in its stage worktree."""
+    import resolve  # noqa: PLC0415
+    import stacks  # noqa: PLC0415
+    root = sync.root_of(root)
+    h = ledger.home(root)
+    st = h.get(stack)
+    if st is None or stack in resolve.RESERVED:
+        print(f"psai retro suggest: no installed stack {stack}", file=sys.stderr)
+        return 3
+    srcs = {}
+    for base in (h.overlay_path, sync.stage_dir(root, "nostack")):
+        d = os.path.join(base, "overrides", stack)
+        for dp, _, fs in os.walk(d):
+            for f in fs:
+                p = os.path.relpath(os.path.join(dp, f), d)
+                if f != ".base.yaml" and not (p.endswith(".cases.yaml") and not os.path.exists(os.path.join(st.path, p))):
+                    srcs[p] = os.path.join(dp, f)  # the stage wins over the live overlay
+    if not srcs:
+        print(f"psai retro suggest: your overlay has no override of {stack}; stage one first (`psai stack override`)",
+              file=sys.stderr)
+        return 1
+    diff = []
+    for p, src in sorted(srcs.items()):
+        orig = os.path.join(st.path, p)
+        r = subprocess.run(["diff", "-u", "--label", f"a/{p}", "--label", f"b/{p}",
+                            orig if os.path.exists(orig) else "/dev/null", src], capture_output=True, text=True)
+        diff.append(r.stdout)
+    author = (st.meta.get("author") or {}).get("github") or "?"
+    out = sync.st(root, "suggestions", stack, f"{datetime.datetime.now():%Y%m%d-%H%M%S}.md")
+    os.makedirs(os.path.dirname(out), exist_ok=True)
+    e = next((x for x in stacks.entries(h) if x.get("name") == stack), {})
+    text = [f"# Suggestion for {stack} ({st.meta.get('repository') or e.get('source', '')}, pinned at {e.get('ref')})",
+            f"For: @{author} (stack.yaml author.github). From psai's retro; nothing was sent.", "",
+            note.strip() or "(no note)", "", "```diff", "".join(diff).rstrip(), "```"]
+    open(out, "w").write("\n".join(text) + "\n")
+    print(f"psai retro suggest: drafted {out}")
+    if not do_open:
+        print("  it stays a draft: ask the owner (the fixed block, kind question) before opening a PR to the author "
+              f"(`psai retro suggest {stack} --open`)")
+        return 0
+    src_url = stacks.source_url(e.get("source") or st.meta.get("repository") or "")
+    repo = sync.st(root, "suggestions", stack, "repo")
+    if not os.path.isdir(os.path.join(repo, ".git")):
+        if subprocess.run(["git", "clone", "-q", src_url, repo], capture_output=True).returncode:
+            print(f"psai retro suggest: can't clone {src_url}", file=sys.stderr)
+            return 1
+    branch = f"psai/suggest-{sync.host()}-{datetime.datetime.now():%Y%m%d-%H%M%S}"
+    sync.g(repo, "fetch", "-q", "origin")
+    sync.g(repo, "checkout", "-q", "-b", branch, e.get("commit") or "HEAD")
+    for p, src in srcs.items():
+        os.makedirs(os.path.dirname(os.path.join(repo, p)) or repo, exist_ok=True)
+        shutil.copyfile(src, os.path.join(repo, p))
+    sync.g(repo, "add", "-A")
+    sync.g(repo, *sync._ident(repo), "commit", "-q", "-m", f"Suggestion from a psai user: {note.strip()[:60] or stack}")
+    print(f"psai retro suggest: branch {branch} in {repo}")
+    if local or not shutil.which("gh"):
+        print("  local only: push it to your fork of the stack and open the PR to its author yourself")
+        return 0
+    gh = sync.gh_repo(repo)
+    if not gh:
+        print("  the stack isn't on GitHub: send the draft to its author instead")
+        return 0
+    subprocess.run(["gh", "repo", "fork", gh, "--remote", "--remote-name", "fork", "--clone=false"], cwd=repo,
+                   capture_output=True)
+    if sync.g(repo, "push", "-q", "-u", "fork", branch, timeout=60)[0]:
+        print("  push to your fork failed; the branch stays local", file=sys.stderr)
+        return 1
+    login = subprocess.run(["gh", "api", "user", "--jq", ".login"], capture_output=True, text=True).stdout.strip()
+    p = subprocess.run(["gh", "pr", "create", "--repo", gh, "--head", f"{login}:{branch}" if login else branch,
+                        "--title", f"Suggestion: {note.strip()[:60] or stack}", "--body-file", out],
+                       capture_output=True, text=True, cwd=repo)
+    print(f"  PR: {p.stdout.strip()}" if p.returncode == 0 else f"  gh pr create failed: {p.stderr.strip()}")
     return 0
 
 
 def main(argv):
     ap = argparse.ArgumentParser(prog="psai retro")
-    ap.add_argument("cmd", choices=["gather", "finish"])
+    ap.add_argument("cmd", choices=["gather", "finish", "suggest"])
+    ap.add_argument("stack", nargs="?", help="suggest: the pinned stack")
+    ap.add_argument("--note", default="", help="suggest: why, for the author")
+    ap.add_argument("--open", action="store_true", help="suggest: build the branch and open the PR (only after a yes)")
     ap.add_argument("--root", default=None)
     ap.add_argument("--session", default=None)
     ap.add_argument("--report", default=None)
@@ -202,6 +294,10 @@ def main(argv):
     if a.cmd == "gather":
         sys.stdout.write(gather(a.root, a.session))
         return 0
+    if a.cmd == "suggest":
+        if not a.stack:
+            ap.error("suggest takes the stack's name")
+        return suggest(a.root, a.stack, a.note, a.open, a.local)
     if not a.report or not os.path.exists(a.report):
         ap.error("finish needs --report <file>")
     return finish(a.root, a.report, a.session, a.pending, a.local)

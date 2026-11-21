@@ -1,23 +1,29 @@
 #!/usr/bin/env python3
-"""Sync: keep the live psai clone, the user's fork and this machine's tools in step. Used by the sync and retro skills
-through `psai sync ...` / `psai retro ...`. Nothing here runs on its own: no startup check, no schedule.
+"""Sync: keep this machine's framework, overlay, stacks and tools in step (ADR 0011, sections 7 and 14). Used by
+the sync and retro skills through `psai sync ...` / `psai retro ...`. Nothing here runs on its own: no startup check,
+no schedule. psai writes only to its targets: the overlay (`nostack`) and the stacks you author (`dev` in stacks.yaml).
 
-  check    the out-of-sync check, deterministic and cheap: new commits on the fork or upstream (short-timeout fetch),
-           an install that doesn't match HEAD, pending migrations, ledger sessions or staged changes not yet in a PR,
-           and tool drift since the last scan. Exit 0 = in sync, 1 = out of sync.
-  update   fast-forward only, keeping local inbox entries; then re-install (which runs pending migrations).
-           Exit 4 = a conflict: nothing changed ("psai update waiting: needs you").
+  check    the out-of-sync check, deterministic and cheap: new commits on the overlay's remote, a newer framework
+           release, a newer release of a pinned stack in range (short-timeout fetches), an install that doesn't match
+           the framework, pending migrations, ledger sessions or staged changes not yet in a PR, and tool drift.
+           Exit 0 = in sync, 1 = out of sync.
+  update   fast-forward the overlay (keeping local inbox entries) and the framework, then re-install (which runs
+           pending migrations). A framework release that an installed stack's psai range excludes is refused unless
+           --force (those stacks are then disabled in your overlay until they update). Exit 4 = a conflict: nothing
+           changed ("psai update waiting: needs you"). Pinned stacks move with `psai stack update`.
   drift    what changed in the tools since the last scan: skill folders, global instruction files (outside psai's
            own lines) and Claude's memory folders. `baseline` records the current state.
-  stage    print (and create) the stage worktree, where customize-harness edits and validates. Never live.
-  pr       build ONE branch in a separate worktree with everything staged or captured (stage worktree + the live
-           clone's uncommitted user-owned files + pending retro reports as the description), push it to the fork
-           and open the PR when there's a remote and gh, else leave it local. Nothing to change: no branch.
+  stage    print (and create) a target's stage worktree (state/stage/<stack>/, --stack, default the overlay),
+           where customize-harness and the retro edit and validate. Never live.
+  pr       build one branch per target with changes (its stage worktree + its live uncommitted files), each with the
+           pending retro reports as the description; push it and open the PR when the target has a remote and gh,
+           else leave it local. Nothing to change: no branch.
   migrate  run pending migrations/NNNN-*.sh once per machine.
   run      check; in sync -> done; else update and list what the skill still has to judge (drift, pending items).
 
 State lives in <state> (ledger.state_dir): sync.json, installed.json, migrations.json, drift.json, proposed.json,
-reports/, prs/, stage/ and worktrees/.
+reports/, prs/, stage/<stack>/ and worktrees/. A single-root home (a fork clone, before migration 0002) is one target,
+the clone, filtered by LAYOUT.md's owner column as before.
 """
 import argparse
 import datetime
@@ -117,7 +123,7 @@ def base_ref(root):
 
 def fetch(root):
     out = {}
-    for r in ("origin", "upstream"):
+    for r in ("origin",):
         if has_remote(root, r):
             rc, _ = g(root, "fetch", "-q", "--no-tags", r, timeout=FETCH_TIMEOUT)
             out[r] = "ok" if rc == 0 else ("timeout" if rc == 124 else "failed")
@@ -140,33 +146,54 @@ def read(path):
         return None
 
 
-# ---------- staged and captured changes ----------
+# ---------- targets, stages, staged and captured changes ----------
+def targets(root):
+    """[(stack, repo path)] psai may write: the overlay, then each dev stack (one you author). Pinned stacks never."""
+    h = ledger.home(root)
+    out = [("nostack", os.path.realpath(h.overlay_path))]
+    out += [(st_.name, os.path.realpath(st_.path)) for st_ in h.stacks if st_.mode == "dev"]
+    return out
+
+
+def target_path(root, stack="nostack"):
+    for n, p in targets(root):
+        if n == stack:
+            return p
+    raise RuntimeError(f"{stack} is not a target: only your overlay (nostack) and the stacks you author (dev) are")
+
+
 def user_owned(root, paths):
-    """In a single-root home, the paths LAYOUT.md gives the user; the overlay repo is all the user's."""
+    """In a single-root home, the paths LAYOUT.md gives the user; a target repo (the overlay, a dev stack) is all
+    yours."""
     if not os.path.exists(os.path.join(root, "install.sh")):
         return set(paths)
     return set(harness.user_files(root, os.path.join(root, "LAYOUT.md"), list(paths)))
 
 
-def stage_dir(root):
-    return st(root, "stage")
+def stage_dir(root, stack="nostack"):
+    return st(root, "stage", stack)
 
 
-def ensure_stage(root):
-    """The stage worktree (detached, at the live HEAD): customize-harness and retro edit and validate here."""
-    root = root_of(root)
-    d = stage_dir(root)
-    head = rev(root, "HEAD")
+def _stage_base(root, stack):
+    return st(root, "stage", f"{stack}.base")
+
+
+def ensure_stage(root, stack="nostack"):
+    """A target's stage worktree (detached, at the target's HEAD): customize-harness and the retro edit and validate
+    here, never in the live repo."""
+    repo = target_path(root, stack)
+    d = stage_dir(root, stack)
+    head = rev(repo, "HEAD")
     if not os.path.isdir(os.path.join(d, ".git")) and not os.path.isfile(os.path.join(d, ".git")):
-        g(root, "worktree", "prune")
+        g(repo, "worktree", "prune")
         os.makedirs(os.path.dirname(d), exist_ok=True)
-        rc, _ = g(root, "worktree", "add", "-q", "--detach", d, "HEAD")
+        rc, _ = g(repo, "worktree", "add", "-q", "--detach", d, "HEAD")
         if rc:
             raise RuntimeError(f"can't create the stage worktree at {d}")
-        open(st(root, "stage.base"), "w").write(head + "\n")
-    elif not stage_changes(root) and (read(st(root, "stage.base")) or "").strip() != head:
+        open(_stage_base(root, stack), "w").write(head + "\n")
+    elif not stage_changes(root, stack) and (read(_stage_base(root, stack)) or "").strip() != head:
         g(d, "checkout", "-q", "--detach", head)
-        open(st(root, "stage.base"), "w").write(head + "\n")
+        open(_stage_base(root, stack), "w").write(head + "\n")
     return d
 
 
@@ -177,48 +204,71 @@ def _name_status(out):
             yield parts[0][:1], parts[-1]
 
 
-def stage_changes(root):
-    """{path: source file or None (deleted)} for everything changed in the stage worktree since its base."""
-    d = stage_dir(root)
-    base = (read(st(root, "stage.base")) or "").strip()
+def stage_changes(root, stack="nostack"):
+    """{path: source file or None (deleted)} for everything changed in a target's stage worktree since its base."""
+    d = stage_dir(root, stack)
+    base = (read(_stage_base(root, stack)) or "").strip()
     if not base or not os.path.exists(os.path.join(d, ".git")):
         return {}
     out = {}
-    for s, p in _name_status(gv(d, "diff", "--no-renames", "--name-status", base)):
-        out[p] = None if s == "D" else os.path.join(d, p)
+    for s_, p in _name_status(gv(d, "diff", "--no-renames", "--name-status", base)):
+        out[p] = None if s_ == "D" else os.path.join(d, p)
     for p in gv(d, "ls-files", "--others", "--exclude-standard").splitlines():
         if p:
             out[p] = os.path.join(d, p)
     return out
 
 
-def live_changes(root):
-    """{path: source or None} for the live clone's uncommitted changes (inbox entries, adopted skills, ...)."""
+def live_changes(repo):
+    """{path: source or None} for a repo's uncommitted changes (inbox entries, adopted skills, ...)."""
     out = {}
-    rc, s = g(root, "status", "--porcelain=v1", "-z", "-uall", "--no-renames", strip=False)
-    for line in s.split("\0") if rc == 0 else []:
+    rc, s_ = g(repo, "status", "--porcelain=v1", "-z", "-uall", "--no-renames", strip=False)
+    for line in s_.split("\0") if rc == 0 else []:
         if len(line) < 4:
             continue
         xy, p = line[:2], line[3:]
-        out[p] = None if "D" in xy else os.path.join(root, p)
+        out[p] = None if "D" in xy else os.path.join(repo, p)
     return out
 
 
-def proposed(root):
-    return ledger.read_json(st(root, "proposed.json"), {}) or {}
+def _proposed_all(root):
+    d = ledger.read_json(st(root, "proposed.json"), {}) or {}
+    if d and not all(isinstance(v, dict) for v in d.values()):
+        d = {"nostack": d}  # the one-target format before ADR 0011
+    return d
 
 
-def pending_changes(root):
-    """(changes, skipped): user-owned changes not yet proposed in a PR; skipped = paths psai would never PR
-    (upstream-owned files edited locally)."""
-    root = root_of(root)
-    cand = dict(live_changes(root))
-    cand.update(stage_changes(root))  # the stage wins over the live copy
-    mine = user_owned(root, cand)
-    done = proposed(root)
+def proposed(root, stack="nostack"):
+    return _proposed_all(root).get(stack, {})
+
+
+def _save_proposed(root, stack, done):
+    d = _proposed_all(root)
+    d[stack] = done
+    ledger.write_json(st(root, "proposed.json"), d)
+
+
+def pending_changes(root, stack="nostack"):
+    """(changes, skipped) for one target: its staged and live changes not yet proposed in a PR; skipped = paths psai
+    would never PR (only in a single-root home: upstream-owned files edited locally)."""
+    repo = target_path(root, stack)
+    cand = dict(live_changes(repo))
+    cand.update(stage_changes(root, stack))  # the stage wins over the live copy
+    mine = user_owned(repo, cand)
+    done = proposed(root, stack)
     changes = {p: src for p, src in cand.items() if p in mine and done.get(p) != (sha256(src) if src else "deleted")}
     skipped = sorted(p for p in cand if p not in mine)
     return changes, skipped
+
+
+def all_pending(root):
+    """{stack: changes} for every target with something to propose."""
+    out = {}
+    for n, _p in targets(root):
+        ch, _ = pending_changes(root, n)
+        if ch:
+            out[n] = ch
+    return out
 
 
 def reports(root):
@@ -359,18 +409,34 @@ def migrate(root, dry=False, link=None):
 
 
 # ---------- the check ----------
-def upstream_ahead(root):
-    """(n new upstream commits not in HEAD, upstream sha), 0 if none or already proposed in a PR."""
-    if not has_remote(root, "upstream"):
-        return 0, ""
-    b = default_branch(root, "upstream")
-    sha = rev(root, f"upstream/{b}") if b else ""
-    if not sha or ancestor(root, sha, "HEAD"):
-        return 0, sha
-    if (ledger.read_json(st(root, "sync.json"), {}) or {}).get("upstream_proposed") == sha:
-        return 0, sha
-    n = gv(root, "rev-list", "--count", f"HEAD..{sha}")
-    return int(n or 0), sha
+def newer_releases(root, do_fetch=True):
+    """[(kind, detail)]: a newer framework release, and a newer release in range for each pinned stack."""
+    import resolve  # noqa: PLC0415
+    import stacks  # noqa: PLC0415
+    h = ledger.home(root)
+    out = []
+    if h.compat:
+        return out
+    fw = os.path.realpath(h.framework)
+    if do_fetch and has_remote(fw, "origin"):
+        g(fw, "fetch", "-q", "--tags", "origin", timeout=FETCH_TIMEOUT)
+    cur = resolve._vt(resolve.framework_version(fw))
+    newer = [t for v, t in stacks.tags(fw) if v > cur]
+    if newer:
+        out.append(("framework", f"psai {newer[0]} is out (this is {resolve.framework_version(fw)}): `psai update`"))
+    for e in stacks.entries(h):
+        if e.get("mode") == "dev":
+            continue
+        d = os.path.join(h.root, "stacks", e["name"])
+        if not os.path.isdir(d):
+            continue
+        if do_fetch:
+            g(d, "fetch", "-q", "--tags", "origin", timeout=FETCH_TIMEOUT)
+        rng = " ".join(r["version"] for s_ in h.stacks for r in s_.meta.get("requires") or [] if r.get("name") == e["name"])
+        t = stacks.newest_fitting(d, rng or None)
+        if t and stacks.pin_of(d, t) != e.get("commit"):
+            out.append(("stack", f"{e['name']} {t} is out in range (pinned at {e.get('ref')}): `psai stack update {e['name']}`"))
+    return out
 
 
 def check(root, do_fetch=True, home=None):
@@ -390,9 +456,7 @@ def check(root, do_fetch=True, home=None):
                 why.append(("behind", f"{gv(root, 'rev-list', '--count', f'HEAD..{tip}')} new commit(s) on {t}"))
             elif not ancestor(root, tip, head):
                 why.append(("diverged", f"the live clone and {t} have both moved on"))
-    n, _ = upstream_ahead(root)
-    if n:
-        why.append(("upstream", f"{n} new upstream commit(s) to merge into your fork"))
+    why += newer_releases(root, do_fetch)
     inst, fw_head = installed(root).get("commit"), rev(framework_of(root), "HEAD")
     if inst != fw_head:
         why.append(("install", f"installed {(inst or 'never')[:12]}, HEAD is {fw_head[:12]}"))
@@ -402,9 +466,8 @@ def check(root, do_fetch=True, home=None):
     uns = [r["id"] for r in ledger.records(root) if ledger.unsynced(r)]
     if uns:
         why.append(("unsynced", f"{len(uns)} session(s) captured items not yet in a PR"))
-    ch, _ = pending_changes(root)
-    if ch:
-        why.append(("staged", f"{len(ch)} staged or captured file(s) not yet in a PR: {', '.join(sorted(ch)[:5])}"))
+    for n, ch in all_pending(root).items():
+        why.append(("staged", f"{n}: {len(ch)} staged or captured file(s) not yet in a PR: {', '.join(sorted(ch)[:5])}"))
     rp = reports(root)
     if rp:
         why.append(("reports", f"{len(rp)} retro report(s) waiting for a PR"))
@@ -416,7 +479,7 @@ def check(root, do_fetch=True, home=None):
 
 # ---------- update (ff-only) ----------
 def is_inbox(p):
-    return p == "knowledge/inbox.md" or bool(re.fullmatch(r"knowledge/roles/[^/]+/inbox\.md", p))
+    return p == "knowledge/inbox.md" or bool(re.fullmatch(r"knowledge/([^/]+/)?roles/[^/]+/inbox\.md", p))
 
 
 def merge_inbox(incoming, local):
@@ -481,6 +544,50 @@ def update(root, dry=False):
     return "updated", f"{head[:7]}..{tip[:7]} from {t}"
 
 
+def update_framework(root, dry=False, force=False):
+    """-> (status, detail): fast-forward the framework clone (stacks layout only). A release that an installed stack's
+    psai range excludes is refused unless force; forcing disables those stacks in your overlay until they update."""
+    import resolve  # noqa: PLC0415
+    import stacks  # noqa: PLC0415
+    h = ledger.home(root)
+    if h.compat:
+        return "nothing", "a single-root home: the clone is the framework"
+    fw = os.path.realpath(h.framework)
+    t = follow_ref(fw)
+    if not t:
+        return "nothing", "the framework has no remote branch to follow"
+    head, tip = rev(fw, "HEAD"), rev(fw, t)
+    if not tip or head == tip or ancestor(fw, tip, head):
+        return "nothing", f"framework up to date with {t}"
+    if not ancestor(fw, head, tip):
+        return "conflict", f"the framework clone has commits that aren't on {t}; update it yourself"
+    try:
+        new = (yaml_load(gv(fw, "show", f"{tip}:VERSION")) or "0.0.0").strip()
+    except Exception:  # noqa: BLE001
+        new = "0.0.0"
+    out = [s_.name for s_ in h.stacks if s_.meta.get("psai") and not resolve.in_range(new, s_.meta["psai"])]
+    if out and not force:
+        return "conflict", (f"psai {new} is outside the psai range of: {', '.join(out)}; update those stacks first, or "
+                            "`psai update --force` (they are disabled until they update)")
+    if dry:
+        return "would", f"fast-forward the framework {head[:7]}..{tip[:7]} (psai {new})"
+    if g(fw, "merge", "-q", "--ff-only", tip)[0]:
+        return "conflict", f"git refused the framework's fast-forward to {t}"
+    if out:
+        meta = resolve.load_stack(h.overlay_path)
+        meta["disable"] = sorted(set(meta.get("disable") or []) | set(out))
+        import yaml  # noqa: PLC0415
+        with open(os.path.join(h.overlay_path, "stack.yaml"), "w") as f:
+            yaml.safe_dump(meta, f, sort_keys=False)
+        print(f"psai: disabled {', '.join(out)} in your overlay until they take psai {new} (`psai stack update`)")
+    return "updated", f"framework {head[:7]}..{tip[:7]} (psai {new})"
+
+
+def yaml_load(text):
+    import yaml  # noqa: PLC0415
+    return yaml.safe_load(text)
+
+
 def reinstall(root):
     if os.environ.get("PSAI_EVAL"):
         print("psai: eval run: install.sh skipped")
@@ -506,37 +613,28 @@ def _ident(root):
     return ["-c", "user.name=psai", "-c", "user.email=psai@localhost"]
 
 
-def build_pr(root, kind="sync", body="", title=None, local=False):
-    """Build one branch with everything pending. -> dict(branch, files, pushed, url) or None (nothing to change)."""
+def build_pr(root, kind="sync", body="", title=None, local=False, stack="nostack", reps=None):
+    """Build one branch in one target repo with everything pending there. -> dict(stack, branch, files, pushed, url)
+    or None (nothing to change). Reports are the description; build_prs consumes them."""
     root = root_of(root)
-    changes, skipped = pending_changes(root)
-    reps = reports(root)
-    n_up, up_sha = upstream_ahead(root) if kind == "sync" else (0, "")
-    if not changes and not n_up:
-        consume_reports(root, reps)
+    repo = target_path(root, stack)
+    changes, skipped = pending_changes(root, stack)
+    reps = reports(root) if reps is None else reps
+    if not changes:
         return None
-    base = base_ref(root)
+    base = base_ref(repo)
     stamp = datetime.datetime.now()
     branch = f"psai/{kind}-{host()}-{stamp:%Y%m%d}"
-    if rev(root, branch) or rev(root, f"origin/{branch}"):
+    if rev(repo, branch) or rev(repo, f"origin/{branch}"):
         branch += f"-{stamp:%H%M%S}"
-    wt = st(root, "worktrees", branch.replace("/", "-"))
+    wt = st(root, "worktrees", f"{stack}-" + branch.replace("/", "-"))
     shutil.rmtree(wt, ignore_errors=True)
-    g(root, "worktree", "prune")
+    g(repo, "worktree", "prune")
     os.makedirs(os.path.dirname(wt), exist_ok=True)
-    rc, _ = g(root, "worktree", "add", "-q", "-b", branch, wt, base)
+    rc, _ = g(repo, "worktree", "add", "-q", "-b", branch, wt, base)
     if rc:
-        raise RuntimeError(f"can't create the PR worktree for {branch}")
-    notes = []
+        raise RuntimeError(f"can't create the PR worktree for {branch} in {repo}")
     try:
-        if n_up:
-            b = default_branch(root, "upstream")
-            if g(wt, *_ident(root), "merge", "-q", "--no-edit", f"upstream/{b}")[0]:
-                g(wt, "merge", "--abort")
-                notes.append(f"upstream has {n_up} new commit(s), but merging upstream/{b} conflicts: merge it yourself.")
-                n_up = 0
-            else:
-                notes.append(f"merges {n_up} new upstream commit(s) from upstream/{b}.")
         for p, src in sorted(changes.items()):
             dst = os.path.join(wt, p)
             if src is None:
@@ -547,17 +645,15 @@ def build_pr(root, kind="sync", body="", title=None, local=False):
                 shutil.copyfile(src, dst)
         g(wt, "add", "-A")
         staged = gv(wt, "diff", "--cached", "--name-only").splitlines()
-        if not staged and not n_up:
-            g(root, "worktree", "remove", "--force", wt)
-            g(root, "branch", "-D", branch)
-            consume_reports(root, reps)
+        if not staged:
+            g(repo, "worktree", "remove", "--force", wt)
+            g(repo, "branch", "-D", branch)
             return None
-        title = title or (f"psai {kind}: {host()} {stamp:%Y-%m-%d}")
-        if staged:
-            g(wt, *_ident(root), "commit", "-q", "-m", title)
+        title = title or (f"psai {kind}: {host()} {stamp:%Y-%m-%d}" + ("" if stack == "nostack" else f" ({stack})"))
+        g(wt, *_ident(repo), "commit", "-q", "-m", title)
     finally:
         if os.path.exists(wt):
-            g(root, "worktree", "remove", "--force", wt)
+            g(repo, "worktree", "remove", "--force", wt)
     files = sorted(changes)
     text = [f"# {title}", ""]
     if body.strip():
@@ -565,47 +661,55 @@ def build_pr(root, kind="sync", body="", title=None, local=False):
     for r in reps:
         text += [read(r).strip(), ""]
     text += ["## What this PR carries"] + [f"- `{p}`" + (" (deleted)" if changes[p] is None else "") for p in files]
-    text += [f"- {n}" for n in notes]
     if skipped:
         text += ["", "Not included (upstream-owned files edited locally; change them upstream instead): "
                  + ", ".join(f"`{p}`" for p in skipped)]
-    text += ["", f"Built by `psai {kind}` on {host()} from {base} ({rev(root, base)[:12]})."]
-    body_path = st(root, "prs", branch.replace("/", "-") + ".md")
+    text += ["", f"Built by `psai {kind}` on {host()} in {'your overlay' if stack == 'nostack' else 'the stack ' + stack} "
+                 f"from {base} ({rev(repo, base)[:12]})."]
+    body_path = st(root, "prs", f"{stack}-" + branch.replace("/", "-") + ".md")
     os.makedirs(os.path.dirname(body_path), exist_ok=True)
     open(body_path, "w").write("\n".join(text) + "\n")
     pushed, url = False, ""
-    if not local and has_remote(root, "origin"):
-        pushed = g(root, "push", "-q", "-u", "origin", branch, timeout=60)[0] == 0
-        repo = gh_repo(root)
-        if pushed and repo and shutil.which("gh"):
-            b = default_branch(root, "origin") or "main"
-            p = subprocess.run(["gh", "pr", "create", "--repo", repo, "--head", branch, "--base", b, "--title", title,
-                                "--body-file", body_path], capture_output=True, text=True, cwd=root)
+    if not local and has_remote(repo, "origin"):
+        pushed = g(repo, "push", "-q", "-u", "origin", branch, timeout=60)[0] == 0
+        gh = gh_repo(repo)
+        if pushed and gh and shutil.which("gh"):
+            b = default_branch(repo, "origin") or "main"
+            p = subprocess.run(["gh", "pr", "create", "--repo", gh, "--head", branch, "--base", b, "--title", title,
+                                "--body-file", body_path], capture_output=True, text=True, cwd=repo)
             url = p.stdout.strip() if p.returncode == 0 else ""
-    # record: these contents are proposed; the stage is emptied; the sessions are synced; the reports are used
-    done = proposed(root)
+    # record: these contents are proposed; the stage is emptied
+    done = proposed(root, stack)
     for p, src in changes.items():
         done[p] = sha256(src) if src else "deleted"
-    ledger.write_json(st(root, "proposed.json"), done)
-    if stage_changes(root):
-        d = stage_dir(root)
-        g(d, "checkout", "-q", "--detach", "--force", rev(root, "HEAD"))
+    _save_proposed(root, stack, done)
+    if stage_changes(root, stack):
+        d = stage_dir(root, stack)
+        g(d, "checkout", "-q", "--detach", "--force", rev(repo, "HEAD"))
         g(d, "clean", "-fdq")
-        open(st(root, "stage.base"), "w").write(rev(root, "HEAD") + "\n")
-    for r in ledger.records(root):
-        if ledger.unsynced(r) or (r.get("end") is None and not r.get("synced")):
-            r["synced"] = branch
-            ledger.save(r, root)
-    consume_reports(root, reps)
-    s = ledger.read_json(st(root, "sync.json"), {}) or {}
-    s.update(last_pr=branch, last_pr_at=ledger.now())
-    if up_sha and n_up:
-        s["upstream_proposed"] = up_sha
-    ledger.write_json(st(root, "sync.json"), s)
-    return {"branch": branch, "files": files, "pushed": pushed, "url": url, "body": body_path,
+        open(_stage_base(root, stack), "w").write(rev(repo, "HEAD") + "\n")
+    return {"stack": stack, "branch": branch, "files": files, "pushed": pushed, "url": url, "body": body_path,
             "next": "" if url or local else (
-                f"push it and open the PR: git -C {root} push -u origin {branch} && gh pr create --head {branch} "
+                f"push it and open the PR: git -C {repo} push -u origin {branch} && gh pr create --head {branch} "
                 f"--body-file {body_path}" if not pushed else f"open the PR: gh pr create --head {branch} --body-file {body_path}")}
+
+
+def build_prs(root, kind="sync", body="", title=None, local=False):
+    """One branch per target with changes (ADR 0011, section 7: one PR per target repo per task). Then the reports are
+    used and the sessions marked synced. -> [results]."""
+    root = root_of(root)
+    reps = reports(root)
+    out = [r for r in (build_pr(root, kind, body, title, local, n, reps) for n, _p in targets(root)) if r]
+    if out:
+        for r in ledger.records(root):
+            if ledger.unsynced(r) or (r.get("end") is None and not r.get("synced")):
+                r["synced"] = ", ".join(x["branch"] + ("" if x["stack"] == "nostack" else f" ({x['stack']})") for x in out)
+                ledger.save(r, root)
+        s = ledger.read_json(st(root, "sync.json"), {}) or {}
+        s.update(last_pr=out[0]["branch"], last_pr_at=ledger.now())
+        ledger.write_json(st(root, "sync.json"), s)
+    consume_reports(root, reps)
+    return out
 
 
 def mark_synced(root):
@@ -619,7 +723,13 @@ def _print_pr(res, kind):
     if not res:
         print(f"psai {kind}: nothing worth changing: no PR")
         return
-    print(f"psai {kind}: branch {res['branch']} ({len(res['files'])} file(s)); description: {res['body']}")
+    for r in res if isinstance(res, list) else [res]:
+        _print_one(r, kind)
+
+
+def _print_one(res, kind):
+    where = "your overlay" if res.get("stack", "nostack") == "nostack" else f"the stack {res['stack']}"
+    print(f"psai {kind}: branch {res['branch']} in {where} ({len(res['files'])} file(s)); description: {res['body']}")
     print("  pushed to origin" if res["pushed"] else "  local only (no origin, or push failed)")
     if res["url"]:
         print(f"  PR: {res['url']}")
@@ -641,6 +751,8 @@ def main(argv):
     ap.add_argument("--body-file", default=None)
     ap.add_argument("--record", action="store_true", help="installed: record HEAD as installed (install.sh)")
     ap.add_argument("--link", default=None, help="migrate: the base link path")
+    ap.add_argument("--stack", default="nostack", help="stage: the target (your overlay, or a dev stack)")
+    ap.add_argument("--force", action="store_true", help="update: take a framework release some stacks don't support")
     a = ap.parse_args(argv)
     root = root_of(a.root)
 
@@ -652,7 +764,7 @@ def main(argv):
     if a.cmd == "migrate":
         return migrate(root, a.dry_run, a.link)
     if a.cmd == "stage":
-        print(ensure_stage(root))
+        print(ensure_stage(root, a.stack))
         return 0
     if a.cmd == "baseline":
         record_baseline(root)
@@ -669,17 +781,25 @@ def main(argv):
             print(f"{k}: {' '.join(d['details'].get(k, []))}")
         return 0
     if a.cmd == "update":
+        if not a.no_fetch:
+            fetch(root)
+            fw = framework_of(root)
+            if fw != root and has_remote(fw, "origin"):
+                g(fw, "fetch", "-q", "--tags", "origin", timeout=FETCH_TIMEOUT)
         status, detail = update(root, a.dry_run)
         print(f"psai update: {status}: {detail}")
-        if status == "conflict":
+        fst, fdet = update_framework(root, a.dry_run, a.force)
+        if fst != "nothing" or not ledger.home(root).compat:
+            print(f"psai update: {fst}: {fdet}")
+        if "conflict" in (status, fst):
             print("psai update waiting: needs you")
             return CONFLICT
-        if status == "updated":
+        if "updated" in (status, fst):
             return reinstall(root)
         return 0
     if a.cmd == "pr":
         body = read(a.body_file) if a.body_file else ""
-        res = build_pr(root, a.kind, body or "", a.title, a.local)
+        res = build_prs(root, a.kind, body or "", a.title, a.local)
         if a.kind == "sync":
             record_baseline(root)
             mark_synced(root)
@@ -706,10 +826,13 @@ def main(argv):
     if "diverged" in kinds:
         print("psai update waiting: needs you (the live clone and the fork have diverged); nothing changed")
         return CONFLICT
-    if kinds & {"behind", "install", "migrations"}:
+    if kinds & {"behind", "install", "migrations", "framework"}:
         status, detail = update(root)
         print(f"update: {status}: {detail}")
-        if status == "conflict":
+        fst, fdet = update_framework(root)
+        if fst != "nothing":
+            print(f"update: {fst}: {fdet}")
+        if "conflict" in (status, fst):
             print("psai update waiting: needs you; nothing changed")
             return CONFLICT
         if reinstall(root):
@@ -720,7 +843,9 @@ def main(argv):
         print("drift to judge (adopt what's worth keeping by staging it, then `psai sync pr`):")
         for k in d["changed"]:
             print(f"  {k}: {' '.join(d['details'].get(k, [])[:20])}")
-    print("next: stage anything worth keeping from the drift, then run `psai sync pr` (one PR for this machine)")
+    if "stack" in kinds:
+        print("stacks with a newer release in range: `psai stack update <name>` (it reports overrides whose original changed)")
+    print("next: stage anything worth keeping from the drift, then run `psai sync pr` (one PR per target repo)")
     return 0
 
 

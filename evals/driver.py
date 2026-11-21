@@ -112,8 +112,13 @@ class Claude:
         os.makedirs(os.path.join(sp, ".claude-plugin"), exist_ok=True)
         with open(os.path.join(sp, ".claude-plugin", "plugin.json"), "w") as f:
             json.dump({"name": "harness-skills", "version": "0.0.0", "description": "eval-only skills link"}, f)
-        if not os.path.exists(os.path.join(sp, "skills")):
-            os.symlink(os.path.join(h, "skills"), os.path.join(sp, "skills"))
+        sk = os.path.join(sp, "skills")  # psai's skills and my-skills/, as install.sh links them
+        os.makedirs(sk, exist_ok=True)
+        for sub in ("skills", "my-skills"):
+            d = os.path.join(h, sub)
+            for n in sorted(os.listdir(d)) if os.path.isdir(d) else []:
+                if os.path.isfile(os.path.join(d, n, "SKILL.md")) and not os.path.lexists(os.path.join(sk, n)):
+                    os.symlink(os.path.join(d, n), os.path.join(sk, n))
         self.p = subprocess.Popen(
             ["claude", "-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose",
              "--plugin-dir", os.path.join(h, "plugins", "claude"), "--plugin-dir", sp,
@@ -190,7 +195,7 @@ class Omp:
     def __init__(self, h, cwd, env, model, budget):
         cfg = os.path.join(os.path.dirname(h), "omp-config.yml")
         with open(cfg, "w") as f:
-            yaml.safe_dump({"skills": {"customDirectories": [os.path.join(h, "skills")], "enableAgentsUser": False,
+            yaml.safe_dump({"skills": {"customDirectories": [os.path.join(h, "skills"), os.path.join(h, "my-skills")], "enableAgentsUser": False,
                                        "enableClaudeUser": False, "enableCodexUser": False, "enablePiUser": False,
                                        "enableAgentsProject": False, "enableClaudeProject": False,
                                        "enablePiProject": False}}, f)

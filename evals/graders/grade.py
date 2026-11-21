@@ -22,6 +22,8 @@ expect keys (all optional):
   only_user_paths         the harness changes touch only paths LAYOUT.md gives to the user (new READMEs allowed)
   router_invoked          the agent used the request-router skill (Skill tool or reading its SKILL.md)
   no_workflow             no workflow node was entered
+  role_used_skill <name>  a role agent (subagent) invoked the skill or read its SKILL.md (Claude Code)
+  work_files [paths]      exist in the work repo
   answer_mentions [words] the final message mentions each (case-insensitive)
   roles_no_route          role agents (subagents) never invoked request-router or work, nor ran trace.sh, and the
                           trace holds one workflow run (Claude Code: needs the subagents' tool calls)
@@ -140,6 +142,15 @@ def grade(expect, log, ctx):
             runs = sum(t.startswith("workflow ") for t in phase)
             add("role agents did not route", calls and not bad and runs == 1,
                 f"{len(calls)} subagent tool calls, {len(bad)} routing: {'; '.join(bad)[:300]}; workflow runs in trace: {runs}")
+    if expect.get("role_used_skill"):
+        n, calls = expect["role_used_skill"], log.get("sub_calls")
+        if calls is None:
+            add(f"a role used {n}", True, "skipped: this tool's driver doesn't record subagent tool calls")
+        else:
+            hit = [c for c in calls if re.search(rf'"skill": "([^"]*:)?{re.escape(n)}"|{re.escape(n)}/SKILL\.md', c)]
+            add(f"a role used {n}", hit, f"{len(calls)} subagent tool calls")
+    for f in expect.get("work_files", []):
+        add(f"work repo has {f}", os.path.exists(os.path.join(w, f)))
     if expect.get("no_workflow"):
         add("no workflow ran", not path, " -> ".join(path))
     for m in expect.get("answer_mentions", []):

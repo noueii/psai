@@ -1,6 +1,6 @@
 ---
 name: customize-harness
-description: "Builds and changes the owner's harness setup WITH the owner: bootstraps a first workflow from the vanilla harness by interviewing them, or adds or changes one piece (workflow, routing, step, role, guide, template, owner rule). Use when `work` finds no matching workflow and the owner agrees to set one up, when the owner wants to change how agents work, or when a proposed-rule from an inbox is accepted."
+description: "Builds and changes the owner's harness setup WITH the owner: bootstraps a first workflow from the vanilla harness by interviewing them, or adds or changes one piece (workflow, routing, step, role, guide, template, owner rule, skill). Use when `work` finds no matching workflow and the owner agrees to set one up, when the owner wants to change how agents work or add, adopt or change a skill, or when a proposed-rule from an inbox is accepted."
 ---
 
 # customize-harness
@@ -32,6 +32,15 @@ Ask the owner ONE question per message, with the fixed block, kind `question`, n
 1. Ask what should change and why, if that isn't clear yet.
 2. Ask the scope: everywhere, this workflow only, or this repo only (`<repo>/.psai/`, same layout, created on first use).
 3. Pick the place and format from LAYOUT.md.
+
+## Skills for a role or step
+Name them in the file's frontmatter, `skills: {required: [...], optional: [...]}`. For each one:
+1. Run `python3 H/scripts/harness.py skills` (the live registry). Installed anywhere: just reference it by name.
+2. Someone else's: add a pinned entry to `H/skills.yaml` (a tag or commit, never a branch; format in `H/my-skills/README.md`).
+3. Doesn't exist: write it with the owner in `H/my-skills/<name>/SKILL.md`, one question at a time.
+4. Only for one repo: `<repo>/.agents/skills/<name>/`, linked from `<repo>/.claude/skills/<name>`, and listed as optional.
+
+Unmanaged skills (`harness.py skills --unmanaged`): offer to adopt one with `H/install.sh --adopt <name>`. Then run `H/install.sh` and `H/scripts/check.sh --quick`.
 
 ## Build
 1. Write the files per LAYOUT.md, using the formats in each folder's README.md. For a role, also create `knowledge/roles/<role>/INDEX.md` and `inbox.md`.

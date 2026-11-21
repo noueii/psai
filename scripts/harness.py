@@ -8,6 +8,9 @@ import sys
 
 import yaml
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import skills as skillreg  # noqa: E402
+
 SPECIAL = ("terminal", "return", "handoff")
 MAY_CHANGE = ("anything", "tests", "nothing")
 
@@ -98,6 +101,7 @@ def validate(root):
         for f in sorted(os.listdir(dd)) if os.path.isdir(dd) else []:
             if f.endswith(".md") and f != "README.md":
                 fm = check_reads(os.path.join(dd, f))
+                errs += [f"{d}/{f}: {e}" for e in skillreg.role_skills(os.path.join(dd, f))[2]]
                 if d == "roles" and fm.get("may_change") not in MAY_CHANGE:
                     errs.append(f"roles/{f}: may_change must be one of {', '.join(MAY_CHANGE)}")
                 if d == "roles" and not exists(f"knowledge/roles/{f[:-3]}/INDEX.md"):
@@ -193,7 +197,12 @@ def validate(root):
         for n in names:
             if n not in leaves:
                 errs.append(f"workflows/{n}.yaml: not reachable from ROUTING.yaml")
-    return errs
+    return errs + skillreg.validate_config(root)
+
+
+def _path_rx(p):
+    """A LAYOUT.md path as a regex: <x> matches one segment, a trailing /** anything below."""
+    return re.compile("^" + re.sub(r"<[^>]+>", "[^/]+", p.replace(".", r"\.")).replace("/**", "/.+") + "$")
 
 
 def layout_patterns(layout_md):
@@ -206,8 +215,7 @@ def layout_patterns(layout_md):
         for p in re.findall(r"`([^`]+)`", cells[1]):
             if p.startswith("<repo>"):
                 continue
-            rx = re.sub(r"<[^>]+>", "[^/]+", p.replace(".", r"\."))
-            pats.append(re.compile("^" + rx + "$"))
+            pats.append(_path_rx(p))
     return pats
 
 
@@ -220,7 +228,7 @@ def owner_patterns(layout_md, owner="you"):
             continue
         for p in re.findall(r"`([^`]+)`", cells[1]):
             if not p.startswith("<repo>"):
-                pats.append(re.compile("^" + re.sub(r"<[^>]+>", "[^/]+", p.replace(".", r"\.")) + "$"))
+                pats.append(_path_rx(p))
     return pats
 
 
@@ -230,7 +238,7 @@ def user_files(root, layout_md, paths):
     return [p for p in paths if os.path.basename(p) != "README.md" and any(rx.match(p) for rx in pats)]
 
 
-def check_layout(root, layout_md, dirs=("workflows", "steps", "roles", "guides", "templates", "knowledge")):
+def check_layout(root, layout_md, dirs=("workflows", "steps", "roles", "guides", "templates", "knowledge", "my-skills")):
     pats = layout_patterns(layout_md)
     errs = []
     for d in dirs:
@@ -259,6 +267,14 @@ def context(root, shown=None):
         lines.append(f"- {wf.get('name', os.path.basename(path)[:-5])}: {' '.join(str(wf.get('when', '')).split())}")
     if not wfs:
         lines.append("- none yet (customize-harness creates the first one)")
+    lines += ["", "To add or change a skill, use customize-harness."]
+    try:
+        n = sum(1 for s in skillreg.registry(root).values() if s["unmanaged"])
+    except Exception:  # noqa: BLE001 - the nudge must never fail on a broken skills.yaml
+        n = 0
+    if n:
+        lines.append(f"{n} skill(s) in your tool folders aren't managed by psai (`python3 {shown}/scripts/harness.py "
+                     "skills --unmanaged`); customize-harness can adopt them.")
     parts.append("\n".join(lines))
     return "\n\n".join(parts) + "\n"
 
@@ -278,6 +294,10 @@ def role_context(root, shown=None, role=None):
                  f"(`{shown}/skills/capture-knowledge/SKILL.md`) and the skills your brief lists.")
     return "\n\n".join(parts) + "\n"
 
+
+if __name__ == "__main__" and len(sys.argv) > 1 and sys.argv[1] == "skills":
+    # harness.py skills [list|check|brief|packs|adopt] ...: the live skill registry (scripts/skills.py)
+    sys.exit(skillreg.main(sys.argv[2:]))
 
 if __name__ == "__main__" and len(sys.argv) > 1 and sys.argv[1] in ("context", "role-context"):
     # harness.py context|role-context [root] [shown-root]: print the injected text. With $PSAI_ROLE set (work sets

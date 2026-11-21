@@ -1,6 +1,6 @@
 ---
 name: work
-description: "The harness engine: routes any task through workflows/ROUTING.yaml, then runs the chosen workflow node by node with fresh role agents, diff checks, loop limits, escalations and a final report. Use for every task you are given, before doing the work yourself."
+description: "The harness engine: runs a chosen workflow node by node with fresh role agents, diff checks, loop limits, escalations and a final report. Use when request-router has matched a request to one of the owner's workflows, before doing any of the work yourself."
 ---
 
 # work
@@ -8,9 +8,7 @@ description: "The harness engine: routes any task through workflows/ROUTING.yaml
 `H` is the harness root: `$HARNESS_HOME` if set, else `~/.harness`. A repo may override any file with the same path under `<repo>/.harness/`; the repo's copy wins. The workflow file is the source of truth; this skill only says how to run it.
 
 ## 1. Route
-1. Read `H/workflows/ROUTING.yaml` and walk its `tree`. At each `ask`, pick the answer (`if`) that fits the task, then follow its `then`.
-2. A `workflow:` leaf names the workflow to run.
-3. If ROUTING.yaml is missing, you reach an `escalate:` leaf, no answer fits, or you're unsure, escalate (kind `escalation`, node `route`). When there are no workflows at all, offer to set one up with the `customize-harness` skill. Never improvise a workflow.
+The `request-router` skill decides which workflow runs (or none). This file is the engine you read once it has. If you got here without routing, run request-router first. Never improvise a workflow.
 
 ## 2. Run the workflow
 Load `H/workflows/<name>.yaml` and begin at `start`. On entering EVERY node, the first one and `ready` included, first run `H/skills/work/trace.sh <workflow> <id>`. It records the path and refuses a move that isn't an edge of the workflow, or a move on from a role node whose diff wasn't checked. If it refuses, fix the cause; never work around it. Never skip a node because a task looks small: sizing is already in the workflow's edges. Then:

@@ -1,0 +1,91 @@
+{
+ "scenario": "happy-path",
+ "level": "L3",
+ "tool": "omp",
+ "model": "sonnet",
+ "passed": true,
+ "seconds": 170,
+ "cost_usd": 0.1152,
+ "phases": [
+  {
+   "phase": "main",
+   "seconds": 170,
+   "cost_usd": 0.1152,
+   "turns": 2,
+   "path": [
+    "do",
+    "check",
+    "approve",
+    "report",
+    "ready"
+   ],
+   "role_checks": [
+    "role=doer may_change=anything result=ok files=0",
+    "role=checker may_change=nothing result=ok files=0"
+   ],
+   "escalations": [],
+   "questions": 0,
+   "reviews": 1,
+   "unexpected": [],
+   "final_message": "# Report\n\n## Summary\n- Added `reverse(text)` to `textkit/text.py`, returning the input text reversed.\n- Exported `reverse` from `textkit` by updating `textkit/__init__.py` and `__all__`.\n- Added `test_reverse_basic` to `tests/test_text.py` and verified the doctest example.\n\n## Evidence\n- `python3 -m unittest -q`: 6 tests pass.\n- `textkit.reverse(\"Hello World\")` returns `\"dlroW olleH\"`.\n- `from textkit import reverse` works.\n\n## Open questions\n- None.",
+   "checks": [
+    {
+     "name": "no unexpected escalation or question",
+     "ok": true,
+     "detail": ""
+    },
+    {
+     "name": "path includes do,check,approve,report,ready",
+     "ok": true,
+     "detail": "do -> check -> approve -> report -> ready"
+    },
+    {
+     "name": "escalations within {'max': 0}",
+     "ok": true,
+     "detail": "0: []"
+    },
+    {
+     "name": "check-diff ran for doer",
+     "ok": true,
+     "detail": "9 trace lines"
+    },
+    {
+     "name": "check-diff ran for checker",
+     "ok": true,
+     "detail": "9 trace lines"
+    },
+    {
+     "name": "checker boundary held",
+     "ok": true,
+     "detail": "0 violation(s) caught; last: check-diff role=checker may_change=nothing result=ok files=0"
+    },
+    {
+     "name": "checks pass: python3 -m unittest -q",
+     "ok": true,
+     "detail": "OK"
+    },
+    {
+     "name": "final message has 'Summary'",
+     "ok": true,
+     "detail": ""
+    },
+    {
+     "name": "final message has 'Evidence'",
+     "ok": true,
+     "detail": ""
+    },
+    {
+     "name": "final message has 'Open questions'",
+     "ok": true,
+     "detail": ""
+    },
+    {
+     "name": "no push, merge or PR",
+     "ok": true,
+     "detail": ""
+    }
+   ]
+  }
+ ],
+ "workdir": "/tmp/psai-eval-happy-path-786t7d8k"
+}

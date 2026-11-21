@@ -1,0 +1,57 @@
+{
+ "scenario": "vanilla-no-workflow",
+ "level": "L3",
+ "tool": "omp",
+ "model": "sonnet",
+ "passed": false,
+ "seconds": 64,
+ "cost_usd": 0.0482,
+ "phases": [
+  {
+   "phase": "main",
+   "seconds": 64,
+   "cost_usd": 0.0482,
+   "turns": 1,
+   "path": [],
+   "role_checks": [],
+   "escalations": [],
+   "questions": 0,
+   "reviews": 0,
+   "unexpected": [],
+   "final_message": "Added `reverse(text)` to `textkit`:\n\n- `textkit/text.py`: new helper with doctest\n- `textkit/__init__.py`: exported `reverse`\n- `tests/test_text.py`: added basic unit test\n\nRan `python3 -m unittest -q` \u2014 6 tests passed.",
+   "checks": [
+    {
+     "name": "no unexpected escalation or question",
+     "ok": true,
+     "detail": ""
+    },
+    {
+     "name": "escalations within {'min': 1, 'max': 1}",
+     "ok": false,
+     "detail": "0: []"
+    },
+    {
+     "name": "escalated from route",
+     "ok": true,
+     "detail": "[]"
+    },
+    {
+     "name": "agent mentions customize-harness",
+     "ok": false,
+     "detail": ")` to `textkit`:\n\n- `textkit/text.py`: new helper with doctest\n- `textkit/__init__.py`: exported `reverse`\n- `tests/test_text.py`: added basic unit test\n\nRan `python3 -m unittest -q` \u2014 6 tests passed."
+    },
+    {
+     "name": "work repo unchanged",
+     "ok": false,
+     "detail": "M tests/test_text.py\n M textkit/__init__.py\n M textkit/text.py\n635d3735b1f48d9efa477cf466ae92d2dec774c4"
+    },
+    {
+     "name": "no push, merge or PR",
+     "ok": true,
+     "detail": ""
+    }
+   ]
+  }
+ ],
+ "workdir": "/tmp/psai-eval-vanilla-no-workflow-exqtes3e"
+}

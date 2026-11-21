@@ -1,0 +1,14 @@
+name: quick-question
+level: L3
+about: A quick question is answered directly, with no workflow and no escalation, and nothing changes.
+content: harness-content
+fixture: textkit
+task: Quick question, no changes please. What does slugify return for "Hello World"?
+owner:
+  max_turns: 2
+expect:
+  no_workflow: true
+  escalations: { max: 0 }
+  answer_mentions: [hello-world]
+  unchanged: true
+  no_push: true

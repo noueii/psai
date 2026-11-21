@@ -1,0 +1,16 @@
+name: routes-unnamed
+level: L3
+about: A request that matches a workflow without naming it is routed through that workflow.
+content: harness-content
+fixture: textkit
+task: The README doesn't say what wordcount does. Add one line about it.
+owner:
+  review: Approved.
+  max_turns: 6
+expect:
+  router_invoked: true
+  path_includes: [do, check, approve, report, ready]
+  escalations: { max: 0 }
+  roles_checked: [doer, checker]
+  checks: python3 -m unittest -q
+  no_push: true

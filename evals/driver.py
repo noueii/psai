@@ -104,11 +104,19 @@ class Claude:
     name = "claude"
 
     def __init__(self, h, cwd, env, model, budget):
+        # The psai plugin (its SessionStart hook injects the nudge), plus a throwaway plugin that exposes the
+        # harness skills the way ~/.claude/skills does in a real install.
+        sp = os.path.join(os.path.dirname(h), "skills-plugin")
+        os.makedirs(os.path.join(sp, ".claude-plugin"), exist_ok=True)
+        with open(os.path.join(sp, ".claude-plugin", "plugin.json"), "w") as f:
+            json.dump({"name": "harness-skills", "version": "0.0.0", "description": "eval-only skills link"}, f)
+        if not os.path.exists(os.path.join(sp, "skills")):
+            os.symlink(os.path.join(h, "skills"), os.path.join(sp, "skills"))
         self.p = subprocess.Popen(
             ["claude", "-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose",
-             "--plugin-dir", h, "--setting-sources", "project", "--no-session-persistence", "--strict-mcp-config",
-             "--permission-mode", "bypassPermissions", "--append-system-prompt-file", os.path.join(h, "instructions", "global.md"),
-             "--add-dir", h, "--model", model, "--max-budget-usd", str(budget)],
+             "--plugin-dir", os.path.join(h, "plugins", "claude"), "--plugin-dir", sp,
+             "--setting-sources", "project", "--no-session-persistence", "--strict-mcp-config",
+             "--permission-mode", "bypassPermissions", "--add-dir", h, "--model", model, "--max-budget-usd", str(budget)],
             cwd=cwd, env=env, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
         self.texts, self.cost = [], 0.0
         self.raw = open(os.path.join(os.path.dirname(h), "stream.jsonl"), "a")
@@ -183,7 +191,7 @@ class Omp:
                                        "enableAgentsProject": False, "enableClaudeProject": False,
                                        "enablePiProject": False}}, f)
         args = ["omp", "--mode", "rpc", "--no-session", "--no-title", "--config", cfg,
-                "--append-system-prompt", os.path.join(h, "instructions", "global.md")]
+                "--extension", os.path.join(h, "plugins", "omp", "psai.ts")]
         self.p = subprocess.Popen(args, cwd=cwd, env=env, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                                   stderr=subprocess.DEVNULL, text=True)
         self.texts, self.cost, self.n = [], 0.0, 0

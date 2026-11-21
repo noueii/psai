@@ -1,13 +1,16 @@
 #!/usr/bin/env bash
 # Install, refresh or remove the harness for Claude Code, opencode, pi and omp.
 # Usage: ./install.sh [--dry-run] [--uninstall]
-# Idempotent. Touches only its own links, its import line and its marked block.
+# Idempotent. Touches only its own links, plugin files and plugin registration. One injection path per tool:
+# a plugin that injects the live psai nudge (scripts/harness.py context). v1's import lines and marked blocks
+# are removed on upgrade.
 set -euo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 H="$HOME/.harness"
-IMPORT='@~/.harness/instructions/global.md'
-OWNER_IMPORT='@~/.harness/instructions/owner.md'   # the fork owner's own rules, if the file exists
+IMPORT='@~/.harness/instructions/global.md'          # v1/early v2 import lines, removed on upgrade
+OWNER_IMPORT='@~/.harness/instructions/owner.md'
+STUB_MARK='// psai: managed by install.sh'
 START='<!-- harness:start -->'
 END='<!-- harness:end -->'
 CFG="${XDG_CONFIG_HOME:-$HOME/.config}"
@@ -31,15 +34,6 @@ has_claude() { [ -d "$HOME/.claude" ]; }
 has_opencode() { [ -d "$CFG/opencode" ]; }
 has_pi() { [ -d "$HOME/.pi/agent" ]; }
 has_omp() { [ -d "$HOME/.omp/agent" ]; }
-
-# pi reads the first of AGENTS.md / CLAUDE.md that exists; write to that one.
-pi_file() {
-  local d="$HOME/.pi/agent"
-  for f in AGENTS.md AGENTS.MD CLAUDE.md CLAUDE.MD; do
-    [ -e "$d/$f" ] && { echo "$d/$f"; return; }
-  done
-  echo "$d/AGENTS.md"
-}
 
 backup() { # before the first edit of an existing file (one with no harness content yet)
   local f="$1"
@@ -77,24 +71,6 @@ finish_removal() {
 TMP="$(mktemp)"
 trap 'rm -f "$TMP"' EXIT
 
-# Our import lines: global.md always, owner.md when the fork has one.
-wanted_imports() { echo "$IMPORT"; [ -f "$REPO/instructions/owner.md" ] && echo "$OWNER_IMPORT"; return 0; }
-
-add_import() {
-  local f="$1" have want
-  have="$( [ -e "$f" ] && grep -Fx -e "$IMPORT" -e "$OWNER_IMPORT" "$f" || true)"
-  want="$(wanted_imports)"
-  [ "$have" = "$want" ] && return
-  if [ -s "$f" ]; then
-    grep -Fxv -e "$IMPORT" -e "$OWNER_IMPORT" "$f" > "$TMP" || true
-    [ -s "$TMP" ] && [ -n "$(tail -c 1 "$TMP")" ] && echo >> "$TMP"
-  else
-    : > "$TMP"
-  fi
-  echo "$want" >> "$TMP"
-  write_if_changed "$f" "$TMP"
-}
-
 remove_import() {
   local f="$1"
   [ -e "$f" ] && grep -Fxq -e "$IMPORT" -e "$OWNER_IMPORT" "$f" || return 0
@@ -112,16 +88,6 @@ strip_block() {
     { print }
     END { if (held && !inb) print "" }
   ' "$1"
-}
-
-upsert_block() {
-  local f="$1"
-  if [ -e "$f" ]; then strip_block "$f" > "$TMP"; else : > "$TMP"; fi
-  [ -s "$TMP" ] && echo >> "$TMP"
-  { echo "$START"; cat "$REPO/instructions/global.md"
-    [ -f "$REPO/instructions/owner.md" ] && { echo; cat "$REPO/instructions/owner.md"; }
-    echo "$END"; } >> "$TMP"
-  write_if_changed "$f" "$TMP"
 }
 
 remove_block() {
@@ -186,13 +152,84 @@ link_skills() {
   done < <(skill_dests)
 }
 
+
+# ---------- plugins: the one injection path per tool ----------
+ours_link() { [ -L "$1" ] && case "$(readlink "$1")" in "$H"/*|"$REPO"/*) true ;; *) false ;; esac; }
+
+link_file() { # target source
+  local t="$1" src="$2"
+  if ours_link "$t"; then
+    [ "$(readlink "$t")" = "$src" ] && return
+    say "relink $t"; do_ ln -sfn "$src" "$t"
+  elif [ -e "$t" ] || [ -L "$t" ]; then
+    echo "skip: $t exists and is not ours" >&2
+  else
+    [ -d "$(dirname "$t")" ] || { say "mkdir $(dirname "$t")"; do_ mkdir -p "$(dirname "$t")"; }
+    say "link $t -> $src"; do_ ln -s "$src" "$t"
+  fi
+}
+
+unlink_file() { if ours_link "$1"; then say "unlink $1"; do_ rm -f "$1"; fi; }
+
+OC_STUB="$CFG/opencode/plugin/psai.js"   # opencode loads only real files from plugin/, so a stub imports the live one
+install_opencode_stub() {
+  if [ -e "$OC_STUB" ] && ! grep -Fxq "$STUB_MARK" "$OC_STUB"; then echo "skip: $OC_STUB exists and is not ours" >&2; return; fi
+  printf '%s\nexport { Psai } from "%s/plugins/opencode/psai.js";\n' "$STUB_MARK" "$H" > "$TMP"
+  write_if_changed "$OC_STUB" "$TMP"
+}
+remove_opencode_stub() {
+  if [ -f "$OC_STUB" ] && grep -Fxq "$STUB_MARK" "$OC_STUB"; then say "remove $OC_STUB"; do_ rm -f "$OC_STUB"; fi
+}
+
+claude_state() { # "installed" when the psai marketplace points at $H and psai@psai is enabled; "other"; "absent"
+  python3 - "$HOME/.claude/settings.json" "$H" <<'PY'
+import json, sys
+try:
+    s = json.load(open(sys.argv[1]))
+except Exception:
+    s = {}
+src = ((s.get("extraKnownMarketplaces") or {}).get("psai") or {}).get("source") or {}
+ok = src.get("path") == sys.argv[2] and (s.get("enabledPlugins") or {}).get("psai@psai") is True
+print("installed" if ok else ("other" if src or "psai@psai" in (s.get("enabledPlugins") or {}) else "absent"))
+PY
+}
+
+install_claude_plugin() {
+  local st; st="$(claude_state)"
+  [ "$st" = installed ] && return
+  if ! command -v claude >/dev/null; then
+    echo "skip: claude CLI not found; later run: claude plugin marketplace add $H && claude plugin install psai@psai" >&2
+    return
+  fi
+  [ -f "$HOME/.claude/settings.json" ] && backup "$HOME/.claude/settings.json"
+  if [ "$st" = other ]; then say "claude: re-point marketplace psai to $H"; do_ claude plugin marketplace remove psai >/dev/null 2>&1 || true; fi
+  say "claude: plugin marketplace add $H"; do_ claude plugin marketplace add "$H" >/dev/null
+  say "claude: plugin install psai@psai"; do_ claude plugin install psai@psai --scope user >/dev/null
+}
+
+uninstall_claude_plugin() {
+  [ "$(claude_state)" = absent ] && return
+  command -v claude >/dev/null || { echo "skip: claude CLI not found; remove psai@psai with /plugin" >&2; return; }
+  say "claude: plugin uninstall psai@psai"; do_ claude plugin uninstall psai@psai --scope user >/dev/null 2>&1 || true
+  say "claude: plugin marketplace remove psai"; do_ claude plugin marketplace remove psai >/dev/null 2>&1 || true
+}
+
+remove_legacy() { # v1 and early v2 wrote import lines and inlined blocks; the plugins replace them
+  remove_import "$HOME/.claude/CLAUDE.md"
+  remove_import "$HOME/.omp/agent/AGENTS.md"
+  for f in "$HOME/.pi/agent/AGENTS.md" "$HOME/.pi/agent/AGENTS.MD" "$HOME/.pi/agent/CLAUDE.md" "$HOME/.pi/agent/CLAUDE.MD" "$CFG/opencode/AGENTS.md"; do
+    remove_block "$f"
+  done
+}
+
 install() {
   link_harness
   link_skills
-  has_claude && add_import "$HOME/.claude/CLAUDE.md"
-  has_omp && add_import "$HOME/.omp/agent/AGENTS.md"
-  has_pi && upsert_block "$(pi_file)"
-  has_opencode && upsert_block "$CFG/opencode/AGENTS.md"
+  remove_legacy
+  has_claude && install_claude_plugin
+  has_pi && link_file "$HOME/.pi/agent/extensions/psai.ts" "$H/plugins/pi/psai.ts"
+  has_omp && link_file "$HOME/.omp/agent/extensions/psai.ts" "$H/plugins/omp/psai.ts"
+  has_opencode && install_opencode_stub
   echo "harness: install done$([ "$DRY" = 1 ] && echo ' (dry run)')"
 }
 
@@ -204,11 +241,11 @@ uninstall() {
       if ours "$target"; then say "unlink $target"; do_ rm -f "$target"; fi
     done
   done
-  remove_import "$HOME/.claude/CLAUDE.md"
-  remove_import "$HOME/.omp/agent/AGENTS.md"
-  for f in "$HOME/.pi/agent/AGENTS.md" "$HOME/.pi/agent/AGENTS.MD" "$HOME/.pi/agent/CLAUDE.md" "$HOME/.pi/agent/CLAUDE.MD" "$CFG/opencode/AGENTS.md"; do
-    remove_block "$f"
-  done
+  remove_legacy
+  [ -d "$HOME/.claude" ] && uninstall_claude_plugin
+  unlink_file "$HOME/.pi/agent/extensions/psai.ts"
+  unlink_file "$HOME/.omp/agent/extensions/psai.ts"
+  remove_opencode_stub
   if [ -L "$H" ] && [ "$(readlink "$H")" = "$REPO" ]; then
     say "unlink $H"
     do_ rm -f "$H"

@@ -35,7 +35,7 @@ Ask the owner ONE question per message, with the fixed block, kind `question`, n
 
 ## Build
 1. Write the files per LAYOUT.md, using the formats in each folder's README.md. For a role, also create `knowledge/roles/<role>/INDEX.md` and `inbox.md`.
-2. Rules for every task (for example an escalation policy) go in `instructions/owner.md`. Tell the owner to re-run `install.sh` so every tool loads it.
+2. Rules for every task (for example an escalation policy) go in `instructions/owner.md`. Every tool's plugin picks it up live.
 3. For a new workflow, also write:
    - its branch in `workflows/ROUTING.yaml` (create the file for the first workflow);
    - its simulator cases `workflows/<name>.cases.yaml`, covering every edge you added, every loop limit and every escalation;

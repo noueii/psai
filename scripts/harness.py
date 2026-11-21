@@ -243,6 +243,32 @@ def check_layout(root, layout_md, dirs=("workflows", "steps", "roles", "guides",
     return errs
 
 
+def context(root, shown=None):
+    """The always-on nudge every harness plugin injects: global.md, owner.md, the routing line, and each workflow's
+    name and `when`. Deterministic: same files, same text. The routing logic itself is the request-router skill."""
+    shown = shown or root
+    parts = [open(os.path.join(root, "instructions", "global.md")).read().strip()]
+    owner = os.path.join(root, "instructions", "owner.md")
+    if os.path.exists(owner):
+        parts.append("## Owner rules\n" + open(owner).read().strip())
+    lines = [f"For every request, run the request-router skill first (`{shown}/skills/request-router/SKILL.md`). "
+             "Skip it only for a quick question or a one-off reply.", "", "Workflows:"]
+    wfs = workflow_files(root)
+    for path in wfs:
+        wf = load(path) or {}
+        lines.append(f"- {wf.get('name', os.path.basename(path)[:-5])}: {' '.join(str(wf.get('when', '')).split())}")
+    if not wfs:
+        lines.append("- none yet (customize-harness creates the first one)")
+    parts.append("\n".join(lines))
+    return "\n\n".join(parts) + "\n"
+
+
+if __name__ == "__main__" and len(sys.argv) > 1 and sys.argv[1] == "context":
+    # harness.py context [root] [shown-root]: print the injected text
+    r = sys.argv[2] if len(sys.argv) > 2 else os.environ.get("HARNESS_HOME") or os.path.expanduser("~/.harness")
+    sys.stdout.write(context(r, sys.argv[3] if len(sys.argv) > 3 else None))
+    sys.exit(0)
+
 if __name__ == "__main__":
     root = sys.argv[1]
     problems = validate(root) + check_layout(root, sys.argv[2] if len(sys.argv) > 2 else os.path.join(root, "LAYOUT.md"))

@@ -19,6 +19,9 @@ expect keys (all optional):
   commands [cmds]         pass in the harness copy
   branch_prefix           the harness copy has a commit on a branch with this prefix
   only_user_paths         the harness changes touch only paths LAYOUT.md gives to the user (new READMEs allowed)
+  router_invoked          the agent used the request-router skill (Skill tool or reading its SKILL.md)
+  no_workflow             no workflow node was entered
+  answer_mentions [words] the final message mentions each (case-insensitive)
 Unexpected escalations or questions (no scripted answer) always fail.
 """
 import os
@@ -115,6 +118,13 @@ def grade(expect, log, ctx):
         brs = [b for b in o.split() if b.startswith(expect["branch_prefix"])]
         ok = bool(brs) and _sh(f"git rev-list --count main..{brs[0]}", h)[1].strip() not in ("", "0")
         add(f"committed on a {expect['branch_prefix']}* branch", ok, o.strip())
+    if expect.get("router_invoked"):
+        t = log.get("text") or ""
+        add("request-router invoked", re.search(r'"skill": "[^"]*request-router"|request-router/SKILL\.md', t), "")
+    if expect.get("no_workflow"):
+        add("no workflow ran", not path, " -> ".join(path))
+    for m in expect.get("answer_mentions", []):
+        add(f"answer mentions {m}", m.lower() in final.lower(), final[-200:])
     if expect.get("only_user_paths"):
         sys.path.insert(0, os.path.join(h, "scripts"))
         import harness  # noqa: E402

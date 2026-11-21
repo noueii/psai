@@ -17,14 +17,14 @@ psai is meant to be forked. The **Owner** column says who owns each path:
 | a role's knowledge | `knowledge/roles/<role>/INDEX.md` and `knowledge/roles/<role>/inbox.md` | index and inbox | you |
 | a rule for one kind of work | `guides/<name>.md` | prescriptive prose, attached with `read:` | you |
 | an output format | `templates/<name>.md` | the format, then a filled-in example | you |
-| a rule for every task | `instructions/owner.md` | short bullets; re-run install.sh after changing it | you |
+| a rule for every task | `instructions/owner.md` | short bullets; injected live into every session | you |
 | a finding during a task | `knowledge/inbox.md` or `knowledge/roles/<role>/inbox.md` | dated entry, see capture-knowledge | you |
 | a promoted fact | `knowledge/facts/<topic>.md` | prose with sources | you |
 | a promoted decision | `knowledge/decisions/<date>-<slug>.md` | Decision / Why / Source | you |
 | the knowledge index | `knowledge/INDEX.md` | one line per file | you |
 | an eval scenario for your workflow | `evals/scenarios/<name>.yaml` | see evals/README.md (don't reuse an upstream name) | you |
 | a rule for one repo only | `<repo>/.harness/<same path as above>` | same format; created on first use; wins over the shared file | you |
-| the machinery | `skills/`, `scripts/`, `install.sh`, `evals/` (except your scenarios), `docs/` | | upstream |
+| the machinery | `skills/`, `plugins/`, `scripts/`, `install.sh`, `evals/` (except your scenarios), `docs/`, `.claude-plugin/` | | upstream |
 | the core instructions and this map | `instructions/global.md`, `LAYOUT.md`, every `README.md` | | upstream |
 
 Folder READMEs (`<folder>/README.md`) describe each folder and are always allowed.

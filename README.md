@@ -25,14 +25,16 @@ git pull upstream main
 psai never ships files in the places you own (your workflows, steps, roles, guides, templates, knowledge and `instructions/owner.md`). Upstream changes therefore merge without conflicts. `scripts/check.sh` tests exactly that.
 
 ## How it works
-- **`work`:** routes a task through your `workflows/ROUTING.yaml` and runs the chosen workflow node by node:
+- **The nudge:** each tool gets a plugin that injects a short, live always-on text (about 110 words plus a line per workflow): the core rules, your `owner.md`, "run the request-router skill first", and your workflows' names and `when`.
+- **`request-router`:** decides each request. A matching workflow runs; a repeatable task with no workflow escalates and offers `customize-harness`; a one-off is handled normally.
+- **`work`:** the engine, read once a workflow is chosen. It runs the workflow node by node:
   - a fresh agent per role;
   - each role's git diff checked against its `may_change`;
   - loop limits;
   - escalations in one fixed format;
   - a final report.
 
-  `trace.sh` refuses any move that isn't an edge of the workflow. With no workflows, `work` escalates and offers `customize-harness`.
+  `trace.sh` refuses any move that isn't an edge of the workflow.
 - **`customize-harness`:** bootstraps your first workflow, and later adds or changes one piece. It offers proven design patterns as options, never as defaults.
 - **`capture-knowledge`:** agents record facts, decisions and proposed rules in inboxes. Promotion happens by PR, which you merge.
 
@@ -50,8 +52,9 @@ During a task, agents write only to knowledge inboxes and to the task's PR descr
 
 ## Structure
 ```
-instructions/global.md   always loaded (≤250 words); your rules go in instructions/owner.md
-skills/                  work (engine, escalation format, check-diff.sh, trace.sh), customize-harness (+ patterns/), capture-knowledge
+instructions/global.md   core rules in the injected nudge (≤120 words); your rules go in instructions/owner.md
+plugins/                 one per tool (claude, pi, omp, opencode); each injects `scripts/harness.py context` live
+skills/                  request-router, work (engine, escalation format, check-diff.sh, trace.sh), customize-harness (+ patterns/), capture-knowledge
 workflows/ steps/ roles/ guides/ templates/ knowledge/   yours; empty in vanilla (README only)
 scripts/                 check.sh, simulate.py, graph.py, harness.py
 evals/                   run.sh, driver.py, fixtures/, scenarios/, graders/, results/
@@ -95,10 +98,14 @@ flowchart TD
 It installs only for tools whose config folder exists (`~/.claude`, `~/.config/opencode`, `~/.pi/agent`, `~/.omp/agent`):
 - links `~/.harness` to your clone;
 - links each skill into `~/.claude/skills` and `~/.agents/skills`, never replacing one that isn't its own, and removes its own stale links;
-- adds `@~/.harness/instructions/global.md` (and `owner.md`, once you have one) to `~/.claude/CLAUDE.md` and `~/.omp/agent/AGENTS.md`;
-- inlines both files between `<!-- harness:start -->` and `<!-- harness:end -->` in `~/.pi/agent/AGENTS.md` (or the `CLAUDE.md` pi already uses) and in `~/.config/opencode/AGENTS.md`.
+- installs ONE plugin per tool, which injects the nudge read live from `~/.harness`:
+  - **Claude Code:** adds this repo as a marketplace (`.claude-plugin/marketplace.json`) and installs `psai@psai` (a SessionStart hook);
+  - **pi:** links the extension `~/.pi/agent/extensions/psai.ts`;
+  - **omp:** links the extension `~/.omp/agent/extensions/psai.ts`;
+  - **opencode:** writes a stub `~/.config/opencode/plugin/psai.js` that imports the live plugin;
+- removes v1's import lines and marked blocks from `CLAUDE.md` and `AGENTS.md` files, keeping everything else.
 
-Before its first edit of an existing file, it saves `<file>.harness-backup`. opencode reads both skill folders, so it loads each skill once and logs a `duplicate skill name` warning; `OPENCODE_DISABLE_CLAUDE_CODE_SKILLS=1` silences it. **Uninstall:** `./install.sh --uninstall` (backups are kept).
+It backs up `~/.claude/settings.json` before the plugin CLI first changes it. opencode reads both skill folders, so it loads each skill once and logs a `duplicate skill name` warning; `OPENCODE_DISABLE_CLAUDE_CODE_SKILLS=1` silences it. **Uninstall:** `./install.sh --uninstall` (backups are kept).
 
 ## Tests
 ```sh
@@ -107,6 +114,6 @@ scripts/check.sh --discover   # plus: opencode, pi and omp list the skills from 
 evals/run.sh                  # L3 + L4 AI evals, headless, on throwaway copies (costs money; keep it small)
 ```
 - **L0:** LAYOUT placement, every README, frontmatter, every `step`/`read:`/`role` path, and the graph rules: reachable, ends at ready, escalate or a handoff, and every automatic loop has a limit. Also checks that diagrams are fresh, that `check-diff.sh` enforces `may_change`, and that `trace.sh` enforces the graph.
-- **L1:** install, update, uninstall, dry-run, idempotency, no clobbering and stale-link removal for all four tools, plus `owner.md`. Also checks that a fork with user content pulls an upstream change to every upstream-owned file without conflicts.
+- **L1:** install, update, uninstall, dry-run, idempotency, no clobbering, stale-link and v1 cleanup for all four tools. `scripts/test-plugins.sh` proves, with no AI and no network, that each plugin's nudge reaches the session. Also checks that a fork with user content pulls an upstream change to every upstream-owned file without conflicts.
 - **L2:** `simulate.py` walks each workflow with scripted outcomes (`workflows/<name>.cases.yaml`).
 - **L3/L4:** see [evals/README.md](evals/README.md).

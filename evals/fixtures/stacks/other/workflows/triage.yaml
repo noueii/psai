@@ -1,0 +1,15 @@
+# Test content only: sort a note, then hand the work to example's workflow.
+name: triage
+when: Sorting incoming notes into a list.
+start: sort
+nodes:
+  sort:
+    step: steps/sort.md
+    role: sorter
+    next:
+      - { when: needs a change, to: change }
+      - { to: ready }
+  change:
+    handoff: example:example
+  ready:
+    terminal: true

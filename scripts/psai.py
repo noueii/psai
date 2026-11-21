@@ -11,6 +11,7 @@
   psai skills [list|check|brief|...]      the live skill registry
   psai ledger [list|show|...]             the local session ledger
   psai check [args]                       scripts/check.sh
+  psai resolve [kind] <ref> [--from S] [--all] [--json] [--write]   find content by name (scripts/resolve.py)
   psai context | graph | simulate [args]  harness.py context, graph.py, simulate.py (root defaults to $PSAI_HOME)
 """
 import os
@@ -154,6 +155,9 @@ def main(argv):
     if cmd == "retro":
         import retro  # noqa: PLC0415
         return retro.main(rest)
+    if cmd == "resolve":
+        import resolve  # noqa: PLC0415
+        return resolve.main(rest)
     if cmd == "ledger":
         return ledger.main(rest)
     if cmd == "skills":

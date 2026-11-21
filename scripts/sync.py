@@ -43,7 +43,16 @@ GIT_ENV.setdefault("GIT_SSH_COMMAND", "ssh -o BatchMode=yes -o ConnectTimeout=5"
 
 
 def root_of(root=None):
-    return os.path.realpath(ledger.root_dir(root))
+    """The repo with the user's content: the overlay in the stacks layout, the clone in a single-root home."""
+    return os.path.realpath(ledger.home(root).overlay_path)
+
+
+def framework_of(root=None):
+    """The framework clone: its install.sh, migrations/ and HEAD (what's installed)."""
+    r = os.path.realpath(ledger.root_dir(root))
+    if os.path.exists(os.path.join(r, "install.sh")):
+        return r
+    return os.path.realpath(ledger.home(root).framework)
 
 
 def st(root, *parts):
@@ -133,6 +142,9 @@ def read(path):
 
 # ---------- staged and captured changes ----------
 def user_owned(root, paths):
+    """In a single-root home, the paths LAYOUT.md gives the user; the overlay repo is all the user's."""
+    if not os.path.exists(os.path.join(root, "install.sh")):
+        return set(paths)
     return set(harness.user_files(root, os.path.join(root, "LAYOUT.md"), list(paths)))
 
 
@@ -314,13 +326,13 @@ def installed(root):
 
 def record_install(root):
     root = root_of(root)
-    head = rev(root, "HEAD") or "unknown"
+    head = rev(framework_of(root), "HEAD") or "unknown"
     if installed(root).get("commit") != head:  # unchanged -> no write (install.sh stays idempotent)
         ledger.write_json(st(root, "installed.json"), {"commit": head, "at": ledger.now(), "version": ledger.version(root)})
 
 
 def migrations(root):
-    return sorted(glob.glob(os.path.join(root, "migrations", "[0-9][0-9][0-9][0-9]-*.sh")))
+    return sorted(glob.glob(os.path.join(framework_of(root), "migrations", "[0-9][0-9][0-9][0-9]-*.sh")))
 
 
 def pending_migrations(root):
@@ -335,7 +347,7 @@ def migrate(root, dry=False, link=None):
     for m in pending_migrations(root):
         name = os.path.basename(m)
         print(f"{'would: ' if dry else ''}migration {name}")
-        env = dict(os.environ, PSAI_REPO=root, PSAI_LINK=link or ledger.root_dir(), DRY_RUN="1" if dry else "0")
+        env = dict(os.environ, PSAI_REPO=framework_of(root), PSAI_LINK=link or ledger.root_dir(), DRY_RUN="1" if dry else "0")
         p = subprocess.run(["bash", m], env=env)
         if p.returncode:
             print(f"psai: migration {name} failed (exit {p.returncode}); it will run again next time", file=sys.stderr)
@@ -381,9 +393,9 @@ def check(root, do_fetch=True, home=None):
     n, _ = upstream_ahead(root)
     if n:
         why.append(("upstream", f"{n} new upstream commit(s) to merge into your fork"))
-    inst = installed(root).get("commit")
-    if inst != rev(root, "HEAD"):
-        why.append(("install", f"installed {(inst or 'never')[:12]}, HEAD is {rev(root, 'HEAD')[:12]}"))
+    inst, fw_head = installed(root).get("commit"), rev(framework_of(root), "HEAD")
+    if inst != fw_head:
+        why.append(("install", f"installed {(inst or 'never')[:12]}, HEAD is {fw_head[:12]}"))
     pm = pending_migrations(root)
     if pm:
         why.append(("migrations", ", ".join(os.path.basename(m) for m in pm)))
@@ -473,7 +485,7 @@ def reinstall(root):
     if os.environ.get("PSAI_EVAL"):
         print("psai: eval run: install.sh skipped")
         return 0
-    return subprocess.run(["bash", os.path.join(root, "install.sh")]).returncode
+    return subprocess.run(["bash", os.path.join(framework_of(root), "install.sh")]).returncode
 
 
 # ---------- the one PR ----------

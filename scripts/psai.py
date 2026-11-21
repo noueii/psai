@@ -35,8 +35,12 @@ TOOLS = ["claude", "opencode", "pi", "omp"]
 
 
 def root():
+    """The home ($PSAI_HOME or ~/.psai): a stacks-layout home (framework/, overlay/, stacks/, state/), a single-root
+    clone, or (neither) this clone."""
     r = ledger.root_dir()
-    return r if os.path.exists(os.path.join(r, "scripts", "harness.py")) else REPO
+    if os.path.isdir(os.path.join(r, "framework")) or os.path.exists(os.path.join(r, "scripts", "harness.py")):
+        return r
+    return REPO
 
 
 def run(cmd):
@@ -44,11 +48,12 @@ def run(cmd):
 
 
 def lines_status(r, fetch=False):
+    fw = sync.framework_of(r)
     r = sync.root_of(r)
     out = []
-    head = sync.rev(r, "HEAD")
-    br = sync.gv(r, "rev-parse", "--abbrev-ref", "HEAD")
-    out.append(f"psai {ledger.version(r)} at {r} ({br})")
+    head = sync.rev(fw, "HEAD")
+    br = sync.gv(fw, "rev-parse", "--abbrev-ref", "HEAD")
+    out.append(f"psai {ledger.version(r)} at {fw} ({br})" + (f"; your overlay: {r}" if r != fw else ""))
     inst = sync.installed(r).get("commit")
     out.append(f"install: {'matches HEAD' if inst == head else ('never recorded' if not inst else f'{inst[:12]} != HEAD')}")
     if fetch:
@@ -97,6 +102,7 @@ def tool_version(t):
 def plugin_loaded(t, r, home):
     cfg = skillreg._cfg(home)
     link = ledger.root_dir()
+    r = sync.framework_of(r)
     if t == "claude":
         s = ledger.read_json(os.path.join(home, ".claude", "settings.json"), {}) or {}
         src = ((s.get("extraKnownMarketplaces") or {}).get("psai") or {}).get("source") or {}
@@ -150,9 +156,9 @@ def main(argv):
     r = root()
     py = [sys.executable]
     if cmd == "install":
-        return run(["bash", os.path.join(r, "install.sh"), *rest])
+        return run(["bash", os.path.join(REPO, "install.sh"), *rest])
     if cmd == "adopt":
-        return run(["bash", os.path.join(r, "install.sh"), "--adopt", *rest])
+        return run(["bash", os.path.join(REPO, "install.sh"), "--adopt", *rest])
     if cmd == "update":
         return sync.main(["update", *rest])
     if cmd == "sync":
@@ -168,7 +174,7 @@ def main(argv):
     if cmd == "skills":
         return run(py + [os.path.join(HERE, "harness.py"), "skills", *rest])
     if cmd == "check":
-        return run(["bash", os.path.join(r, "scripts", "check.sh"), *rest])
+        return run(["bash", os.path.join(REPO, "scripts", "check.sh"), *rest])
     if cmd in ("context", "role-context"):
         return run(py + [os.path.join(HERE, "harness.py"), cmd, *(rest or [r])])
     if cmd in ("graph", "simulate"):

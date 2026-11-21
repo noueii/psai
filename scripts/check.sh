@@ -223,11 +223,12 @@ before="$(snap "$h")"
 run "$h" --dry-run > "$T/dry.out" 2>&1
 check "dry-run changes nothing" test "$before" = "$(snap "$h")"
 check "dry-run reports actions" grep -q '^would: link' "$T/dry.out"
-check "dry-run reports the new link and the old link's removal" bash -c "grep -q '^would: link $h/.psai -> ' '$T/dry.out' && grep -q '^would: unlink old base $h/.harness' '$T/dry.out'"
+check "dry-run reports the new home and the old link's removal" bash -c "grep -q '^would: link $h/.psai/framework -> ' '$T/dry.out' && grep -q '^would: create the overlay' '$T/dry.out' && grep -q '^would: unlink old base $h/.harness' '$T/dry.out'"
 run "$h" > "$T/inst.out" 2>&1 || fail "install exited non-zero"
-check "~/.psai links to repo" test "$(readlink "$h/.psai")" = "$ROOT"
+check "~/.psai is a home: framework/ links the repo; overlay, stacks, state" bash -c "test -d '$h/.psai' -a ! -L '$h/.psai' && test \"\$(readlink '$h/.psai/framework')\" = '$ROOT' && test -d '$h/.psai/stacks'"
+check "the overlay is a git repo, the stack nostack, with an empty stacks.yaml" bash -c "git -C '$h/.psai/overlay' rev-parse HEAD && grep -q '^name: nostack' '$h/.psai/overlay/stack.yaml' && grep -q '^stacks: \[\]' '$h/.psai/overlay/stacks.yaml'"
 check "old ~/.harness link (to a psai clone) removed" test ! -e "$h/.harness" -a ! -L "$h/.harness"
-check "skill linked through the old path relinked" test "$(readlink "$h/.claude/skills/work")" = "$h/.psai/skills/work"
+check "skill linked through the old path relinked" test "$(readlink "$h/.claude/skills/work")" = "$h/.psai/framework/skills/work"
 for n in $SKILLS; do
   check "claude skill $n" test -f "$h/.claude/skills/$n/SKILL.md"
   check "agents skill $n" test -f "$h/.agents/skills/$n/SKILL.md"
@@ -237,20 +238,21 @@ check "foreign skill untouched" grep -qx foreign "$h/.agents/skills/foreign/SKIL
 check "v1 import line removed, content kept" bash -c "! grep -q '@~/.harness' '$h/.claude/CLAUDE.md' && grep -qx 'keep me' '$h/.claude/CLAUDE.md'"
 check "v1 opencode block removed, content kept" bash -c "! grep -q harness:start '$h/.config/opencode/AGENTS.md' && grep -qx '# owner rules' '$h/.config/opencode/AGENTS.md'"
 check "v1 pi file (only our block) removed" test ! -e "$h/.pi/agent/AGENTS.md"
-check "pi extension linked" test "$(readlink "$h/.pi/agent/extensions/psai.ts")" = "$h/.psai/plugins/pi/psai.ts"
-check "omp extension linked" test "$(readlink "$h/.omp/agent/extensions/psai.ts")" = "$h/.psai/plugins/omp/psai.ts"
-check "opencode stub imports the live plugin" grep -Fq "$h/.psai/plugins/opencode/psai.js" "$h/.config/opencode/plugin/psai.js"
-check "the psai command linked into ~/.local/bin and runs" bash -c "test \"\$(readlink '$h/.local/bin/psai')\" = '$h/.psai/scripts/psai.py' && HOME='$h' PSAI_STATE='$h/.psai-state' '$h/.local/bin/psai' status | grep -q '^install: matches HEAD'"
+check "pi extension linked" test "$(readlink "$h/.pi/agent/extensions/psai.ts")" = "$h/.psai/framework/plugins/pi/psai.ts"
+check "omp extension linked" test "$(readlink "$h/.omp/agent/extensions/psai.ts")" = "$h/.psai/framework/plugins/omp/psai.ts"
+check "opencode stub imports the live plugin" grep -Fq "$h/.psai/framework/plugins/opencode/psai.js" "$h/.config/opencode/plugin/psai.js"
+check "the psai command linked into ~/.local/bin and runs" bash -c "test \"\$(readlink '$h/.local/bin/psai')\" = '$h/.psai/framework/scripts/psai.py' && HOME='$h' PSAI_STATE='$h/.psai-state' '$h/.local/bin/psai' status | grep -q '^install: matches HEAD'"
+check "the nudge reaches a session from the home" bash -c "HOME='$h' PSAI_STATE='$h/.psai-state' bash '$ROOT/plugins/claude/hooks/session-start.sh' < /dev/null | grep -q 'python3 ~/.psai/framework/scripts/psai.py'"
 check "migrations recorded once; installed commit recorded" bash -c "grep -q 0001-remove-old-harness-link '$h/.psai-state/migrations.json' && grep -q \"\$(git -C '$ROOT' rev-parse HEAD)\" '$h/.psai-state/installed.json'"
 if has_cli claude; then
-  check "claude plugin psai@psai enabled, marketplace at ~/.psai" bash -c "$(declare -f enabled); enabled '$h' && grep -q '\"path\": \"$h/.psai\"' '$h/.claude/settings.json'"
+  check "claude plugin psai@psai enabled, marketplace at ~/.psai/framework" bash -c "$(declare -f enabled); enabled '$h' && grep -q '\"path\": \"$h/.psai/framework\"' '$h/.claude/settings.json'"
 else echo "  skip claude plugin install (claude CLI not found)"; fi
 
 echo "L1 re-run is idempotent"
 after="$(snap "$h")"
 run "$h" > /dev/null 2>&1
 check "second install changes nothing" test "$after" = "$(snap "$h")"
-ln -s "$h/.psai/skills/old-skill" "$h/.agents/skills/old-skill"
+ln -s "$h/.psai/framework/skills/old-skill" "$h/.agents/skills/old-skill"
 run "$h" > /dev/null 2>&1
 check "stale skill link removed on update" test ! -L "$h/.agents/skills/old-skill"
 
@@ -268,7 +270,7 @@ echo "L1 uninstall"
 run "$h" --uninstall --dry-run > /dev/null 2>&1
 check "uninstall dry-run changes nothing" test "$after" = "$(snap "$h")"
 run "$h" --uninstall > /dev/null 2>&1 || fail "uninstall exited non-zero"
-check "~/.psai removed" test ! -e "$h/.psai" -a ! -L "$h/.psai"
+check "framework/ unlinked; the overlay and stacks are kept" bash -c "test ! -e '$h/.psai/framework' -a ! -L '$h/.psai/framework' && git -C '$h/.psai/overlay' rev-parse HEAD && test -d '$h/.psai/stacks'"
 check "no harness links left" test -z "$(find "$h/.claude/skills" "$h/.agents/skills" "$h/.pi/agent/extensions" "$h/.omp/agent/extensions" -maxdepth 1 -type l)"
 check "opencode stub removed" test ! -e "$h/.config/opencode/plugin/psai.js"
 check "psai command unlinked" test ! -L "$h/.local/bin/psai"
@@ -281,17 +283,45 @@ h="$T/pionly"; mkdir -p "$h/.pi/agent"; run "$h" > /dev/null 2>&1
 check "no ~/.claude, opencode or omp created" bash -c "test ! -e '$h/.claude' && test ! -e '$h/.config/opencode' && test ! -e '$h/.omp'"
 check "pi gets skills and its extension" bash -c "test -f '$h/.agents/skills/work/SKILL.md' && test -L '$h/.pi/agent/extensions/psai.ts'"
 
+echo "L1 migration 0002: a fork-layout ~/.psai (a link to a fork clone) becomes a home"
+fk2="$T/fork2"; mkdir -p "$fk2"; (cd "$ROOT" && git ls-files -co --exclude-standard -z | xargs -0 cp --parents -t "$fk2" 2>/dev/null)
+[ -n "$FIX" ] && cp -r "$FIX"/workflows "$FIX"/steps "$FIX"/roles "$FIX"/guides "$FIX"/templates "$FIX"/knowledge "$FIX"/my-skills "$fk2/"
+echo "- Ask before deleting anything." > "$fk2/instructions/owner.md"
+(cd "$fk2" && git init -q -b main && git add -A && git -c user.email=t@t -c user.name=t commit -qm fork) || fail "fork2 repo"
+printf '# Inbox\n\n## 2026-11-22: a local entry\n- Tag: fact\n' > "$fk2/knowledge/inbox.md"; mkdir -p "$fk2/.state"; echo '{"last_sync": "x"}' > "$fk2/.state/sync.json"
+h="$T/mig"; mkdir -p "$h/.agents/skills" "$h/.pi/agent"; ln -s "$fk2" "$h/.psai"; ln -s "$h/.psai/skills/work" "$h/.agents/skills/work"
+mrun() { env -u XDG_CONFIG_HOME -u PSAI_HOME -u PSAI_STATE HOME="$h" bash "$fk2/install.sh" "$@"; }
+tracked() { (cd "$fk2" && git ls-files -z | xargs -0 md5sum | md5sum); }
+t0="$(tracked)"; before="$(snap "$h")"
+mrun --dry-run > "$T/mig-dry.out" 2>&1
+check "0002 dry-run changes nothing and says what it would do" bash -c "test '$before' = \"\$(cd '$h' && $(declare -f snap); snap '$h')\" && test -L '$h/.psai' && grep -q '^would: turn $h/.psai' '$T/mig-dry.out' && grep -q '^would: copy instructions/owner.md into the overlay' '$T/mig-dry.out'"
+mrun > "$T/mig.out" 2>&1 || { fail "install from a fork-layout home"; cat "$T/mig.out"; }
+check "~/.psai is now a home; framework/ links the fork clone" bash -c "test -d '$h/.psai' -a ! -L '$h/.psai' && test \"\$(readlink '$h/.psai/framework')\" = '$fk2'"
+check "the fork's files are in the overlay, committed" bash -c "o='$h/.psai/overlay'; test -f \$o/workflows/example.yaml -a -f \$o/my-skills/change-notes/SKILL.md && grep -q 'Ask before deleting' \$o/instructions/owner.md && grep -q 'a local entry' \$o/knowledge/inbox.md && test -z \"\$(git -C \$o status --porcelain)\""
+check ".state moved to state/" bash -c "grep -q last_sync '$h/.psai/state/sync.json' && test ! -e '$fk2/.state'"
+check "the clone's tracked files are untouched" test "$t0" = "$(tracked)"
+check "a skill link through the old layout is relinked" test "$(readlink "$h/.agents/skills/work")" = "$h/.psai/framework/skills/work"
+check "0002 recorded as run; the overlay's workflow resolves and reaches the nudge" bash -c "grep -q 0002-fork-to-stacks '$h/.psai/state/migrations.json' && test \"\$(HOME='$h' python3 '$ROOT/scripts/psai.py' resolve workflow example)\" = '$h/.psai/overlay/workflows/example.yaml' && HOME='$h' bash '$ROOT/plugins/claude/hooks/session-start.sh' < /dev/null | grep -q -- '- nostack:example: '"
+after="$(snap "$h")"; mrun > /dev/null 2>&1
+check "re-run after the conversion changes nothing" test "$after" = "$(snap "$h")"
+mrun --relink > "$T/relink.out" 2>&1
+check "--relink only relinks skills (nothing to do here)" bash -c "test '$after' = \"\$(cd '$h' && $(declare -f snap); snap '$h')\" && ! grep -q 'claude\\|extensions\\|migration' '$T/relink.out'"
+
 echo "L1 never clobber"
 h="$T/clash"; mkdir -p "$h/.claude/skills/work" "$h/.pi/agent/extensions" "$h/.config/opencode/plugin"
 echo mine > "$h/.claude/skills/work/SKILL.md"; echo mine > "$h/.pi/agent/extensions/psai.ts"; echo mine > "$h/.config/opencode/plugin/psai.js"
 run "$h" > /dev/null 2> "$T/clash.err"
 check "existing skill, extension and plugin kept" bash -c "grep -qx mine '$h/.claude/skills/work/SKILL.md' && grep -qx mine '$h/.pi/agent/extensions/psai.ts' && grep -qx mine '$h/.config/opencode/plugin/psai.js'"
 check "clashes reported" test "$(grep -c 'not ours' "$T/clash.err")" -ge 3
-h="$T/taken"; mkdir -p "$h/.psai" "$h/.claude"
-check "refuses a foreign ~/.psai" test "$(run "$h" >/dev/null 2>&1; echo $?)" = 1
+h="$T/taken"; mkdir -p "$h/.claude"; echo x > "$h/.psai"
+check "refuses a ~/.psai that is a file" test "$(run "$h" >/dev/null 2>&1; echo $?)" = 1
+h="$T/taken2"; mkdir -p "$h/.claude" "$h/.psai" "$T/notpsai"; ln -s "$T/notpsai" "$h/.psai/framework"
+check "refuses a framework/ that links something else" test "$(run "$h" >/dev/null 2>&1; echo $?)" = 1
+h="$T/taken3"; mkdir -p "$h/.claude"; ln -s "$T/notpsai" "$h/.psai"
+check "refuses a ~/.psai link to something that isn't psai" test "$(run "$h" >/dev/null 2>&1; echo $?)" = 1
 h="$T/oldforeign"; mkdir -p "$h/.harness/skills/work" "$h/.claude/skills" "$T/elsewhere"; ln -s "$h/.harness/skills/work" "$h/.claude/skills/work"
 run "$h" > /dev/null 2>&1
-check "a foreign ~/.harness folder and links into it are left alone" bash -c "test -d '$h/.harness' && test ! -L '$h/.harness' && test \"\$(readlink '$h/.claude/skills/work')\" = '$h/.harness/skills/work' && test -L '$h/.psai'"
+check "a foreign ~/.harness folder and links into it are left alone" bash -c "test -d '$h/.harness' && test ! -L '$h/.harness' && test \"\$(readlink '$h/.claude/skills/work')\" = '$h/.harness/skills/work' && test -d '$h/.psai/overlay'"
 h="$T/oldlink"; mkdir -p "$h/.claude"; ln -s "$T/elsewhere" "$h/.harness"
 run "$h" > /dev/null 2>&1
 check "a ~/.harness link to something else is left alone" test "$(readlink "$h/.harness")" = "$T/elsewhere"
@@ -300,12 +330,12 @@ echo "L1 skills: registry, my-skills/, skills.yaml packs (local git, no network)
 G="git -c user.email=t@t -c user.name=t"
 sf="$T/skfork"; mkdir -p "$sf"; (cd "$ROOT" && git ls-files -co --exclude-standard -z | xargs -0 cp --parents -t "$sf" 2>/dev/null)
 mkskill() { mkdir -p "$1"; printf -- '---\nname: %s\ndescription: "Test skill %s. Use when testing."\n---\nbody\n' "$(basename "$1")" "$(basename "$1")" > "$1/SKILL.md"; }
-mkskill "$sf/my-skills/mine"
+h="$T/skh"; ov="$h/.psai/overlay"; mkskill "$ov/my-skills/mine"   # the overlay holds your skills and skills.yaml
 pk="$T/packsrc"; mkskill "$pk/skills/pk-tag"; mkskill "$pk/skills/pk-sha"
 (cd "$pk" && git init -q -b main && git add -A && $G commit -qm one && git tag v1) || fail "pack fixture repo"
 sha="$(git -C "$pk" rev-parse HEAD)"
-printf 'skills:\n  - name: pk-tag\n    source: file://%s\n    path: skills/pk-tag\n    ref: v1\n  - name: pk-sha\n    source: file://%s\n    path: skills/pk-sha\n    ref: %s\nignore: [orca-cli]\n' "$pk" "$pk" "$sha" > "$sf/skills.yaml"
-h="$T/skh"; mkdir -p "$h/.claude/skills" "$h/.config/opencode/skills" "$h/.pi/agent/skills" "$h/.omp/agent/skills" "$h/.agents/skills" "$h/proj/.agents/skills" "$h/proj/.claude/skills"
+printf 'skills:\n  - name: pk-tag\n    source: file://%s\n    path: skills/pk-tag\n    ref: v1\n  - name: pk-sha\n    source: file://%s\n    path: skills/pk-sha\n    ref: %s\nignore: [orca-cli]\n' "$pk" "$pk" "$sha" > "$ov/skills.yaml"
+mkdir -p "$h/.claude/skills" "$h/.config/opencode/skills" "$h/.pi/agent/skills" "$h/.omp/agent/skills" "$h/.agents/skills" "$h/proj/.agents/skills" "$h/proj/.claude/skills"
 mkskill "$h/.claude/skills/own-a"                                     # the user's own, in a tool folder
 mkskill "$h/.config/opencode/skills/oc-only"; mkskill "$h/.pi/agent/skills/pi-only"; mkskill "$h/.omp/agent/skills/omp-only"
 np="$T/npxsrc"; mkskill "$np/skills/npx-b"; (cd "$np" && git init -q -b main && git add -A && $G commit -qm one) || fail "npx fixture repo"
@@ -313,14 +343,14 @@ cp -r "$np/skills/npx-b" "$h/.agents/skills/npx-b"; ln -s ../../.agents/skills/n
 printf '{"version":3,"skills":{"npx-b":{"source":"%s","sourceType":"git","sourceUrl":"file://%s","skillPath":"skills/npx-b/SKILL.md"}}}\n' "$np" "$np" > "$h/.agents/.skill-lock.json"
 mkskill "$h/.agents/skills/orca-cli"                                  # managed by another tool, ignored
 mkskill "$h/proj/.agents/skills/proj-only"; ln -s ../../.agents/skills/proj-only "$h/proj/.claude/skills/proj-only"
-srun() { env -u XDG_CONFIG_HOME -u PSAI_HOME HOME="$h" bash "$sf/install.sh" "$@"; }
-sreg() { (cd "$h/proj" && env -u XDG_CONFIG_HOME -u PSAI_HOME HOME="$h" python3 "$sf/scripts/harness.py" skills --root "$h/.psai" --project "$h/proj" --json); }
+srun() { env -u XDG_CONFIG_HOME -u PSAI_HOME -u PSAI_STATE HOME="$h" bash "$sf/install.sh" "$@"; }
+sreg() { (cd "$h/proj" && env -u XDG_CONFIG_HOME -u PSAI_HOME -u PSAI_STATE HOME="$h" python3 "$sf/scripts/harness.py" skills --root "$h/.psai" --project "$h/proj" --json); }
 q() { python3 -c "import json,sys; r=json.load(open('$T/reg.json')); sys.exit(0 if ($1) else 1)"; }
 srun > "$T/sk.out" 2>&1 || { fail "install with skills"; cat "$T/sk.out"; }
-check "my-skills/mine linked into both folders" bash -c "test \"\$(readlink '$h/.claude/skills/mine')\" = '$h/.psai/my-skills/mine' && test -f '$h/.agents/skills/mine/SKILL.md'"
-check "pack pinned to a tag fetched and linked" bash -c "test -f '$sf/.skills-cache/pk-tag/skills/pk-tag/SKILL.md' && test \"\$(readlink '$h/.claude/skills/pk-tag')\" = '$h/.psai/.skills-cache/pk-tag/skills/pk-tag'"
-check "pack pinned to a commit checked out at it" bash -c "test \"\$(git -C '$sf/.skills-cache/pk-sha' rev-parse HEAD)\" = '$sha' && test -f '$h/.agents/skills/pk-sha/SKILL.md'"
-check "README-psai.md dropped in both folders" bash -c "grep -q 'install.sh --adopt' '$h/.claude/skills/README-psai.md' && grep -q 'customize-harness' '$h/.agents/skills/README-psai.md'"
+check "the overlay's my-skills/mine linked into both folders" bash -c "test \"\$(readlink '$h/.claude/skills/mine')\" = '$h/.psai/overlay/my-skills/mine' && test -f '$h/.agents/skills/mine/SKILL.md'"
+check "pack pinned to a tag fetched into state/skills-cache/nostack and linked" bash -c "test -f '$h/.psai/state/skills-cache/nostack/pk-tag/skills/pk-tag/SKILL.md' && test \"\$(readlink '$h/.claude/skills/pk-tag')\" = '$h/.psai/state/skills-cache/nostack/pk-tag/skills/pk-tag'"
+check "pack pinned to a commit checked out at it" bash -c "test \"\$(git -C '$h/.psai/state/skills-cache/nostack/pk-sha' rev-parse HEAD)\" = '$sha' && test -f '$h/.agents/skills/pk-sha/SKILL.md'"
+check "README-psai.md dropped in both folders" bash -c "grep -q 'psai adopt <name>' '$h/.claude/skills/README-psai.md' && grep -q 'customize-harness' '$h/.agents/skills/README-psai.md'"
 check "unmanaged skills left in place" bash -c "test -d '$h/.claude/skills/own-a' -a ! -L '$h/.claude/skills/own-a' && test -d '$h/.agents/skills/npx-b'"
 after="$(snap "$h")"; srun > /dev/null 2>&1
 check "re-run with packs changes nothing" test "$after" = "$(snap "$h")"
@@ -340,33 +370,33 @@ check "nudge mentions the unmanaged count" bash -c "cd '$h/proj' && HOME='$h' py
 srun --adopt orca-cli > /dev/null 2>&1
 check "adopt refuses an ignored skill" test -d "$h/.agents/skills/orca-cli" -a ! -L "$h/.agents/skills/orca-cli"
 before="$(snap "$h")"; srun --adopt own-a --dry-run > /dev/null 2>&1
-check "adopt --dry-run changes nothing" test "$before" = "$(snap "$h")" -a ! -e "$sf/my-skills/own-a"
+check "adopt --dry-run changes nothing" test "$before" = "$(snap "$h")" -a ! -e "$ov/my-skills/own-a"
 srun --adopt own-a > "$T/adopt.out" 2>&1 || { fail "adopt own-a"; cat "$T/adopt.out"; }
-check "adopt (own): moved into my-skills/ and linked back to both folders" bash -c "test -f '$sf/my-skills/own-a/SKILL.md' && test \"\$(readlink '$h/.claude/skills/own-a')\" = '$h/.psai/my-skills/own-a' && test -L '$h/.agents/skills/own-a'"
+check "adopt (own): moved into the overlay's my-skills/ and linked back to both folders" bash -c "test -f '$ov/my-skills/own-a/SKILL.md' && test \"\$(readlink '$h/.claude/skills/own-a')\" = '$h/.psai/overlay/my-skills/own-a' && test -L '$h/.agents/skills/own-a'"
 srun --adopt npx-b > "$T/adopt.out" 2>&1 || { fail "adopt npx-b"; cat "$T/adopt.out"; }
 check "adopt (pack): pinned skills.yaml entry from the npx lock" python3 -c "
-import yaml,sys; e=[x for x in yaml.safe_load(open('$sf/skills.yaml'))['skills'] if x['name']=='npx-b']
+import yaml,sys; e=[x for x in yaml.safe_load(open('$ov/skills.yaml'))['skills'] if x['name']=='npx-b']
 sys.exit(0 if e and e[0]['source']=='file://$np' and e[0]['path']=='skills/npx-b' and e[0]['ref']=='$(git -C "$np" rev-parse HEAD)' else 1)"
-check "adopt (pack): linked from the cache; old copy kept in .skills-cache/.adopted" bash -c "test \"\$(readlink '$h/.agents/skills/npx-b')\" = '$h/.psai/.skills-cache/npx-b/skills/npx-b' && test -L '$h/.claude/skills/npx-b' && ls '$sf/.skills-cache/.adopted/' | grep -q '^npx-b-'"
-check "adopt kept skills.yaml's other entries and ignore list" bash -c "grep -q 'name: pk-tag' '$sf/skills.yaml' && grep -q 'ignore: \[orca-cli\]' '$sf/skills.yaml'"
-check "the fork with adopted skills still validates" python3 -c "
+check "adopt (pack): linked from the cache; old copy kept in the cache's .adopted/" bash -c "test \"\$(readlink '$h/.agents/skills/npx-b')\" = '$h/.psai/state/skills-cache/nostack/npx-b/skills/npx-b' && test -L '$h/.claude/skills/npx-b' && ls '$h/.psai/state/skills-cache/nostack/.adopted/' | grep -q '^npx-b-'"
+check "adopt kept skills.yaml's other entries and ignore list" bash -c "grep -q 'name: pk-tag' '$ov/skills.yaml' && grep -q 'ignore: \[orca-cli\]' '$ov/skills.yaml'"
+check "the overlay with adopted skills still validates" python3 -c "
 import sys; sys.path.insert(0, '$sf/scripts'); import harness
-sys.exit(1 if harness.validate('$sf') + harness.check_layout('$sf', '$sf/LAYOUT.md') else 0)"
+sys.exit(1 if harness.validate('$ov') + harness.check_layout('$ov', '$sf/LAYOUT.md') else 0)"
 check "my-skills/ and skills.yaml are user-owned" bash -c "cd '$sf' && test \"\$(printf 'my-skills/own-a/SKILL.md\nmy-skills/own-a/scripts/x.sh\nskills.yaml\nmy-skills/README.md\n' | python3 -c \"import sys; sys.path.insert(0, 'scripts'); import harness; print(' '.join(harness.user_files('.', 'LAYOUT.md', [l.strip() for l in sys.stdin])))\")\" = 'my-skills/own-a/SKILL.md my-skills/own-a/scripts/x.sh skills.yaml'"
-printf 'skills:\n  - {name: pk-tag, source: "file://%s", path: skills/pk-tag, ref: v1}\nignore: [orca-cli]\n' "$pk" > "$sf/skills.yaml"; rm -rf "$sf/my-skills/mine"
+printf 'skills:\n  - {name: pk-tag, source: "file://%s", path: skills/pk-tag, ref: v1}\nignore: [orca-cli]\n' "$pk" > "$ov/skills.yaml"; rm -rf "$ov/my-skills/mine"
 srun > /dev/null 2>&1
 check "removed entries and my-skills unlinked as stale" bash -c "test ! -L '$h/.claude/skills/pk-sha' && test ! -L '$h/.agents/skills/mine' && test ! -L '$h/.claude/skills/npx-b' && test -L '$h/.claude/skills/pk-tag'"
 srun --uninstall > /dev/null 2>&1
-check "uninstall removes skill links and README-psai.md, keeps unmanaged and my-skills" bash -c "test -z \"\$(find '$h/.claude/skills' '$h/.agents/skills' -maxdepth 1 -lname '$h/.psai/*')\" && test ! -e '$h/.claude/skills/README-psai.md' && test -d '$h/.agents/skills/orca-cli' && test -f '$sf/my-skills/own-a/SKILL.md'"
+check "uninstall removes skill links and README-psai.md, keeps unmanaged and the overlay's my-skills" bash -c "test -z \"\$(find '$h/.claude/skills' '$h/.agents/skills' -maxdepth 1 -lname '$h/.psai/*')\" && test ! -e '$h/.claude/skills/README-psai.md' && test -d '$h/.agents/skills/orca-cli' && test -f '$ov/my-skills/own-a/SKILL.md'"
 
 echo "L1 PSAI_HOME overrides the link path"
 h="$T/custom"; c="$h/tools/psai"; mkdir -p "$h/.pi/agent"
 PSAI_HOME="$c" PSAI_STATE="$h/.psai-state" env -u XDG_CONFIG_HOME HOME="$h" bash "$I" > /dev/null 2>&1
-check "link made at \$PSAI_HOME, not ~/.psai" bash -c "test \"\$(readlink '$c')\" = '$ROOT' && test ! -e '$h/.psai'"
-check "skills and pi extension point through \$PSAI_HOME" bash -c "test \"\$(readlink '$h/.agents/skills/work')\" = '$c/skills/work' && test \"\$(readlink '$h/.pi/agent/extensions/psai.ts')\" = '$c/plugins/pi/psai.ts'"
-check "nudge shows \$PSAI_HOME paths" bash -c "PSAI_HOME='$c' HOME='$h' bash '$ROOT/plugins/claude/hooks/session-start.sh' | grep -Fq 'python3 $c/scripts/psai.py'"
+check "the home made at \$PSAI_HOME, not ~/.psai" bash -c "test \"\$(readlink '$c/framework')\" = '$ROOT' && test ! -e '$h/.psai'"
+check "skills and pi extension point through \$PSAI_HOME" bash -c "test \"\$(readlink '$h/.agents/skills/work')\" = '$c/framework/skills/work' && test \"\$(readlink '$h/.pi/agent/extensions/psai.ts')\" = '$c/framework/plugins/pi/psai.ts'"
+check "nudge shows \$PSAI_HOME paths" bash -c "PSAI_HOME='$c' HOME='$h' bash '$ROOT/plugins/claude/hooks/session-start.sh' | grep -Fq 'python3 $c/framework/scripts/psai.py'"
 PSAI_HOME="$c" PSAI_STATE="$h/.psai-state" env -u XDG_CONFIG_HOME HOME="$h" bash "$I" --uninstall > /dev/null 2>&1
-check "uninstall removes the \$PSAI_HOME link and its links" bash -c "test ! -L '$c' && test ! -L '$h/.agents/skills/work' && test ! -L '$h/.pi/agent/extensions/psai.ts'"
+check "uninstall removes the framework link and its links" bash -c "test ! -L '$c/framework' && test ! -L '$h/.agents/skills/work' && test ! -L '$h/.pi/agent/extensions/psai.ts'"
 
 echo "L1 owner rules reach the nudge"
 fk="$T/ownerfork"; cp -r "$ROOT" "$fk"; rm -rf "$fk/.git"; echo "- Ask before deleting anything." > "$fk/instructions/owner.md"

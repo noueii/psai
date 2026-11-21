@@ -204,11 +204,26 @@ def _under(p, root):
     return p == root or p.startswith(root.rstrip("/") + "/")
 
 
+def sources(root):
+    """[(stack, kind, folder label, folder)] psai manages, and [(stack, skills.yaml folder, cache folder)], for the home
+    at `root`: the framework's skills/, the overlay's my-skills/ and each installed stack's (resolve.Home)."""
+    import resolve  # noqa: PLC0415
+    h = resolve.Home(root)
+    dirs = [("psai", "psai", "skills/", os.path.join(h.framework, "skills"))]
+    dirs.append((resolve.OVERLAY, "my-skills", "my-skills/", os.path.join(h.overlay_path, "my-skills")))
+    packs = [(resolve.OVERLAY, h.overlay_path, h.skills_cache(resolve.OVERLAY))]
+    for st in h.stacks:
+        dirs.append((st.name, "my-skills", f"{st.name}:my-skills/", os.path.join(st.path, "my-skills")))
+        packs.append((st.name, st.path, h.skills_cache(st.name)))
+    return h, dirs, packs
+
+
 def registry(root, home=None, project=None):
     """name -> {locations: [...], tools, unmanaged, duplicate, ignored, description}."""
-    real_root = os.path.realpath(root)
+    h, dirs, packs = sources(root)
+    roots = {os.path.realpath(p) for p in [root, h.root, h.framework, h.overlay_path, h.state] + [s.path for s in h.stacks]}
     home = home or _home()
-    cfg = config(root)
+    cfg = config(h.overlay_path)
     ignore = set(cfg["ignore"])
     idx = {}
 
@@ -216,19 +231,25 @@ def registry(root, home=None, project=None):
         loc["real"] = os.path.realpath(loc["path"])
         idx.setdefault(name, {"locations": []})["locations"].append(loc)
 
-    for kind, sub in (("psai", "skills"), ("my-skills", "my-skills")):
-        for n, p in _entries(os.path.join(root, sub)):
-            add(n, where=f"{sub}/", kind=kind, path=p, managed=True, tools=[])
-    for e in cfg["skills"]:
-        if not isinstance(e, dict) or not e.get("name"):
+    seen = set()
+    for stack, kind, label, d in dirs:
+        if os.path.realpath(d) in seen:
             continue
-        p = os.path.join(root, CACHE, e["name"], str(e.get("path") or "."))
-        p = os.path.normpath(p)
-        add(e["name"], where="skills.yaml", kind="pack", path=p, managed=True, tools=[],
-            fetched=os.path.isfile(os.path.join(p, "SKILL.md")), source=e.get("source"), ref=str(e.get("ref")))
+        seen.add(os.path.realpath(d))
+        for n, p in _entries(d):
+            add(n, where=label, kind=kind, path=p, managed=True, tools=[], stack=stack)
+    for stack, sroot, cache in packs:
+        for e in config(sroot)["skills"]:
+            if not isinstance(e, dict) or not e.get("name"):
+                continue
+            p = os.path.normpath(os.path.join(cache, e["name"], str(e.get("path") or ".")))
+            add(e["name"], where="skills.yaml" if stack == "nostack" else f"{stack}:skills.yaml", kind="pack",
+                path=p, managed=True, tools=[], stack=stack,
+                fetched=os.path.isfile(os.path.join(p, "SKILL.md")), source=e.get("source"), ref=str(e.get("ref")))
+    real_root = os.path.realpath(root)
     for label, d, tools in user_dirs(home):
         for n, p in _entries(d):
-            ours = os.path.islink(p) and _under(os.path.realpath(p), real_root)
+            ours = os.path.islink(p) and any(_under(os.path.realpath(p), r) for r in roots)
             add(n, where=label, kind="user", path=p, managed=ours, tools=tools)
     if project and os.path.realpath(project) != real_root:
         for rel, tools in PROJECT_DIRS:
@@ -382,7 +403,8 @@ def adopt(root, name, home=None, dry=False, ref=None):
         return 1
     locs = [loc for loc in s["locations"] if loc["kind"] == "user" and not loc["managed"]]
     stamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
-    backup = os.path.join(root, CACHE, ".adopted", f"{name}-{stamp}")
+    import resolve  # noqa: PLC0415
+    backup = os.path.join(resolve.Home(root).skills_cache(resolve.OVERLAY), ".adopted", f"{name}-{stamp}")
     lk = _lock(home).get(name)
     if lk and (lk.get("sourceUrl") or lk.get("source")):
         src = f"github:{lk['source']}" if lk.get("sourceType") == "github" and lk.get("source") else lk.get("sourceUrl") or lk["source"]
@@ -450,7 +472,8 @@ def main(argv):
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--ref", default=None, help="adopt: pin to this ref instead of the source's HEAD")
     a = ap.parse_intermixed_args(argv)
-    root = a.root or _default_root()
+    import resolve  # noqa: PLC0415
+    root = resolve.Home(a.root or _default_root()).overlay_path  # the user's skills and skills.yaml live in the overlay
     project = a.project or project_root()
 
     if a.cmd == "packs":  # for install.sh: name, url, path, ref (tab-separated), pinned entries only

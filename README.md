@@ -110,19 +110,20 @@ flowchart TD
 
 ## Install details
 It installs only for tools whose config folder exists (`~/.claude`, `~/.config/opencode`, `~/.pi/agent`, `~/.omp/agent`):
-- links `~/.psai` to your clone (set `PSAI_HOME` to use another path; set it for your tools too, since the plugins and the `psai` command read it). Skills never build paths: they find every file by name with `psai resolve`, `psai route` and `psai node`;
-- links each skill into `~/.claude/skills` and `~/.agents/skills`, never replacing one that isn't its own, and removes its own stale links: psai's skills, your `my-skills/`, and each pinned `skills.yaml` entry (fetched into the git-ignored `.skills-cache/`; network only when the pin changes);
-- drops a `README-psai.md` into both folders saying which skills are psai's and how to adopt the rest (`./install.sh --adopt <name>`);
-- installs ONE plugin per tool, which injects the nudge read live from `~/.psai`:
-  - **Claude Code:** adds this repo as a marketplace (`.claude-plugin/marketplace.json`) and installs `psai@psai` (a SessionStart hook);
+- sets up the home `~/.psai` (`PSAI_HOME` moves it; set it for your tools too, since the plugins and the `psai` command read it): `framework/` links your clone, `overlay/` is your stack `nostack` (a git repo, created once), `stacks/` holds installed stacks and `state/` this machine's state. See [LAYOUT.md](LAYOUT.md#the-home-one-machine-adr-0011). Skills never build paths: they find every file by name with `psai resolve`, `psai route` and `psai node`;
+- converts a home that is still a link to a fork clone (migration 0002): your files move into `overlay/`, `.state/` into `state/`; the clone's own files are left alone;
+- links each skill into `~/.claude/skills` and `~/.agents/skills`, never replacing one that isn't its own, and removes its own stale links: the framework's skills, your overlay's `my-skills/`, each installed stack's, and each pinned `skills.yaml` entry (fetched into `state/skills-cache/<stack>/`; network only when the pin changes). `--relink` does only this;
+- drops a `README-psai.md` into both folders saying which skills are psai's and how to adopt the rest (`psai adopt <name>`, into your overlay);
+- installs ONE plugin per tool, which injects the nudge (`psai context`, read live):
+  - **Claude Code:** adds `~/.psai/framework` as a marketplace (`.claude-plugin/marketplace.json`) and installs `psai@psai` (a SessionStart hook);
   - **pi:** links the extension `~/.pi/agent/extensions/psai.ts`;
   - **omp:** links the extension `~/.omp/agent/extensions/psai.ts`;
   - **opencode:** writes a stub `~/.config/opencode/plugin/psai.js` that imports the live plugin;
-- links the `psai` command, `~/.local/bin/psai` (`PSAI_BIN` changes the folder), runs pending migrations and records the installed commit in `.state/` (`PSAI_STATE` moves it);
+- links the `psai` command, `~/.local/bin/psai` (`PSAI_BIN` changes the folder), runs pending migrations and records the installed commit in `state/` (`PSAI_STATE` moves it);
 - removes v1's import lines and marked blocks from `CLAUDE.md` and `AGENTS.md` files, keeping everything else.
 - migration 0001 removes the legacy base link `~/.harness` (its name before the rename to `~/.psai`) if it is a link to a psai clone, after install relinks what went through it; anything else at that path is left alone.
 
-It backs up `~/.claude/settings.json` before the plugin CLI first changes it. opencode reads both skill folders, so it loads each skill once and logs a `duplicate skill name` warning; `OPENCODE_DISABLE_CLAUDE_CODE_SKILLS=1` silences it. **Uninstall:** `./install.sh --uninstall` (backups are kept).
+It backs up `~/.claude/settings.json` before the plugin CLI first changes it. opencode reads both skill folders, so it loads each skill once and logs a `duplicate skill name` warning; `OPENCODE_DISABLE_CLAUDE_CODE_SKILLS=1` silences it. **Uninstall:** `./install.sh --uninstall` (backups, your overlay, the stacks and the state are kept).
 
 ## Tests
 ```sh

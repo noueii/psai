@@ -202,6 +202,8 @@ class Stack:
 class Home:
     def __init__(self, root=None):
         self.root = os.path.abspath(root or os.environ.get("PSAI_HOME") or os.path.expanduser("~/.psai"))
+        if os.path.basename(self.root) == "overlay" and os.path.isdir(os.path.join(os.path.dirname(self.root), "framework")):
+            self.root = os.path.dirname(self.root)  # given the overlay: its home
         self.compat = not os.path.isdir(os.path.join(self.root, "framework"))
         if self.compat:
             self.framework = FRAMEWORK

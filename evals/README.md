@@ -40,6 +40,6 @@ A block with no scripted answer is an unexpected escalation and fails the run.
 - for L4, that customize-harness touched only user-owned paths;
 - that nothing was pushed or merged.
 
-Each run writes a JSON summary to `results/`. A passing L4 run also saves the harness content it built. `--runs N` gives a pass rate. `graders/judge.md` is an optional AI-judge rubric.
+Each run writes a JSON summary to `results/`, which is git-ignored and stays local; report pass rates in the PR instead. A passing L4 run also saves the harness content it built. `--runs N` gives a pass rate. `graders/judge.md` is an optional AI-judge rubric.
 
 Scenario format: see [scenarios/README.md](scenarios/README.md).

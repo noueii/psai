@@ -1,15 +1,17 @@
 #!/usr/bin/env bash
-# Install, refresh or remove the harness for Claude Code, opencode, pi and omp.
-# Usage: ./install.sh [--dry-run] [--uninstall]
+# Install, refresh or remove psai for Claude Code, opencode, pi and omp.
+# Usage: ./install.sh [--dry-run] [--uninstall]    (PSAI_HOME overrides the link path, default ~/.psai)
 # Idempotent. Touches only its own links, plugin files and plugin registration. One injection path per tool:
-# a plugin that injects the live psai nudge (scripts/harness.py context). v1's import lines and marked blocks
-# are removed on upgrade.
+# a plugin that injects the live psai nudge (scripts/harness.py context). On upgrade it removes v1's import lines
+# and marked blocks, and the old base link if it points to a psai clone.
 set -euo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
-H="$HOME/.harness"
-IMPORT='@~/.harness/instructions/global.md'          # v1/early v2 import lines, removed on upgrade
-OWNER_IMPORT='@~/.harness/instructions/owner.md'
+H="${PSAI_HOME:-$HOME/.psai}"
+H="${H%/}"
+OLD_H="$HOME/.harness"                                # legacy base link (before the rename), removed on upgrade
+IMPORT='@~/.harness/instructions/global.md'          # legacy: v1/early v2 import lines, removed on upgrade
+OWNER_IMPORT='@~/.harness/instructions/owner.md'     # legacy
 STUB_MARK='// psai: managed by install.sh'
 START='<!-- harness:start -->'
 END='<!-- harness:end -->'
@@ -21,7 +23,7 @@ for a in "$@"; do
   case "$a" in
     --dry-run) DRY=1 ;;
     --uninstall) MODE=uninstall ;;
-    -h|--help) sed -n '2,4p' "$0" | sed 's/^# //'; exit 0 ;;
+    -h|--help) sed -n '2,3p' "$0" | sed 's/^# //'; exit 0 ;;
     *) echo "unknown option: $a" >&2; exit 2 ;;
   esac
 done
@@ -35,12 +37,15 @@ has_opencode() { [ -d "$CFG/opencode" ]; }
 has_pi() { [ -d "$HOME/.pi/agent" ]; }
 has_omp() { [ -d "$HOME/.omp/agent" ]; }
 
-backup() { # before the first edit of an existing file (one with no harness content yet)
+# Backups are *.psai-backup; *.harness-backup is the name older versions used.
+has_backup() { [ -e "$1.psai-backup" ] || [ -e "$1.harness-backup" ]; }
+
+backup() { # before the first edit of an existing file (one with no psai content yet)
   local f="$1"
-  if [ -e "$f" ] && [ ! -e "$f.harness-backup" ] \
+  if [ -e "$f" ] && ! has_backup "$f" \
     && ! grep -Fxq -e "$IMPORT" -e "$START" "$f"; then
-    say "backup $f -> $f.harness-backup"
-    do_ cp -p "$f" "$f.harness-backup"
+    say "backup $f -> $f.psai-backup"
+    do_ cp -p "$f" "$f.psai-backup"
   fi
 }
 
@@ -59,8 +64,8 @@ write_if_changed() { # file newcontent-file
 finish_removal() {
   local f="$1" new="$2"
   if cmp -s "$f" "$new"; then return; fi
-  if [ ! -e "$f.harness-backup" ] && ! grep -q '[^[:space:]]' "$new"; then
-    say "remove $f (created by harness, now empty)"
+  if ! has_backup "$f" && ! grep -q '[^[:space:]]' "$new"; then
+    say "remove $f (created by psai, now empty)"
     do_ rm -f "$f"
   else
     say "update $f"
@@ -97,11 +102,26 @@ remove_block() {
   finish_removal "$f" "$TMP"
 }
 
+# Is $1 a psai clone? (v1 and v2 both ship these files)
+is_clone() { [ -f "$1/install.sh" ] && [ -f "$1/instructions/global.md" ] && [ -f "$1/skills/capture-knowledge/SKILL.md" ]; }
+
+# Links into the old base path are ours when it is a link to a psai clone, or gone; never when it is anything else.
+OLD_OURS=0
+if [ "$OLD_H" != "$H" ]; then
+  if [ -L "$OLD_H" ] && is_clone "$OLD_H"; then OLD_OURS=1
+  elif [ ! -e "$OLD_H" ] && [ ! -L "$OLD_H" ]; then OLD_OURS=1; fi
+fi
+under_ours() { # path-prefix test: is $1 inside $H, the repo or (when ours) the old base path?
+  case "$1" in "$H"/*|"$REPO"/*) return 0 ;; esac
+  [ "$OLD_OURS" = 1 ] && case "$1" in "$OLD_H"/*) return 0 ;; esac
+  return 1
+}
+
 # Is $1 a symlink to one of our skills?
 ours() {
   [ -L "$1" ] || return 1
-  case "$(readlink "$1")" in "$H"/skills/*|"$REPO"/skills/*) return 0 ;; esac
-  return 1
+  local t; t="$(readlink "$1")"
+  case "$t" in */skills/*) under_ours "$t" ;; *) return 1 ;; esac
 }
 
 skill_dests() {
@@ -110,7 +130,8 @@ skill_dests() {
   return 0
 }
 
-link_harness() {
+link_base() {
+  if [ -d "$H" ] && [ ! -L "$H" ] && [ "$(cd "$H" && pwd -P)" = "$REPO" ]; then return; fi   # PSAI_HOME is the clone itself
   if [ -L "$H" ]; then
     [ "$(readlink "$H")" = "$REPO" ] && return
     echo "error: $H points to $(readlink "$H"), not $REPO. Remove it or run install.sh from that clone." >&2
@@ -119,8 +140,16 @@ link_harness() {
     echo "error: $H exists and is not a link. Move it away first." >&2
     exit 1
   fi
+  [ -d "$(dirname "$H")" ] || { say "mkdir $(dirname "$H")"; do_ mkdir -p "$(dirname "$H")"; }
   say "link $H -> $REPO"
   do_ ln -s "$REPO" "$H"
+}
+
+remove_old_base() { # the pre-rename base link, only if it is a link to a psai clone
+  if [ "$OLD_H" != "$H" ] && [ -L "$OLD_H" ] && is_clone "$OLD_H"; then
+    say "unlink old base $OLD_H (now $H)"
+    do_ rm -f "$OLD_H"
+  fi
 }
 
 link_skills() {
@@ -154,7 +183,7 @@ link_skills() {
 
 
 # ---------- plugins: the one injection path per tool ----------
-ours_link() { [ -L "$1" ] && case "$(readlink "$1")" in "$H"/*|"$REPO"/*) true ;; *) false ;; esac; }
+ours_link() { [ -L "$1" ] && under_ours "$(readlink "$1")"; }
 
 link_file() { # target source
   local t="$1" src="$2"
@@ -223,14 +252,15 @@ remove_legacy() { # v1 and early v2 wrote import lines and inlined blocks; the p
 }
 
 install() {
-  link_harness
+  link_base
   link_skills
   remove_legacy
+  remove_old_base
   has_claude && install_claude_plugin
   has_pi && link_file "$HOME/.pi/agent/extensions/psai.ts" "$H/plugins/pi/psai.ts"
   has_omp && link_file "$HOME/.omp/agent/extensions/psai.ts" "$H/plugins/omp/psai.ts"
   has_opencode && install_opencode_stub
-  echo "harness: install done$([ "$DRY" = 1 ] && echo ' (dry run)')"
+  echo "psai: install done$([ "$DRY" = 1 ] && echo ' (dry run)')"
 }
 
 uninstall() {
@@ -246,11 +276,12 @@ uninstall() {
   unlink_file "$HOME/.pi/agent/extensions/psai.ts"
   unlink_file "$HOME/.omp/agent/extensions/psai.ts"
   remove_opencode_stub
+  remove_old_base
   if [ -L "$H" ] && [ "$(readlink "$H")" = "$REPO" ]; then
     say "unlink $H"
     do_ rm -f "$H"
   fi
-  echo "harness: uninstall done$([ "$DRY" = 1 ] && echo ' (dry run)'). Backups (*.harness-backup) were kept."
+  echo "psai: uninstall done$([ "$DRY" = 1 ] && echo ' (dry run)'). Backups (*.psai-backup) were kept."
 }
 
 "$MODE"

@@ -2,10 +2,10 @@
 """Run eval scenarios headless against a tool, with a scripted fake owner. Called by evals/run.sh.
 
 Each run gets a throwaway directory:
-- harness/   a copy of this harness (vanilla), with the scenario's test content overlaid; HARNESS_HOME points here;
+- harness/   a copy of this harness (vanilla), with the scenario's test content overlaid; PSAI_HOME points here;
 - work/      a copy of the fixture repo, a git repo whose origin is remote.git (a local bare repo);
 - bin/gh     a shim that logs and refuses, so nothing reaches GitHub;
-- trace.log  check-diff.sh's lines (HARNESS_TRACE).
+- trace.log  check-diff.sh's lines (PSAI_TRACE).
 
 The real HOME is only read in place by the tool for its own login. Nothing is copied from it and no harness file
 is installed into it.
@@ -251,7 +251,7 @@ TOOLS = {"claude": Claude, "omp": Omp}
 
 def run_phase(tool, phase, h, w, base, model, budget):
     cwd = h if phase.get("cwd") == "harness" else w
-    env = dict(os.environ, HARNESS_HOME=h, HARNESS_TRACE=os.path.join(base, "trace.log"),
+    env = dict(os.environ, PSAI_HOME=h, PSAI_TRACE=os.path.join(base, "trace.log"),
                PATH=os.path.join(base, "bin") + os.pathsep + os.environ["PATH"],
                GIT_AUTHOR_NAME="eval", GIT_AUTHOR_EMAIL="eval@local", GIT_COMMITTER_NAME="eval",
                GIT_COMMITTER_EMAIL="eval@local")

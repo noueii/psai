@@ -5,7 +5,7 @@ description: "The harness engine: runs a chosen workflow node by node with fresh
 
 # work
 
-`H` is the harness root: `$HARNESS_HOME` if set, else `~/.harness`. A repo may override any file with the same path under `<repo>/.harness/`; the repo's copy wins. The workflow file is the source of truth; this skill only says how to run it.
+`H` is the harness root: `$PSAI_HOME` if set, else `~/.psai`. A repo may override any file with the same path under `<repo>/.psai/`; the repo's copy wins. The workflow file is the source of truth; this skill only says how to run it.
 
 ## 1. Route
 The `request-router` skill decides which workflow runs (or none). This file is the engine you read once it has. If you got here without routing, run request-router first. Never improvise a workflow.

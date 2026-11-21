@@ -23,10 +23,10 @@ psai is meant to be forked. The **Owner** column says who owns each path:
 | a promoted decision | `knowledge/decisions/<date>-<slug>.md` | Decision / Why / Source | you |
 | the knowledge index | `knowledge/INDEX.md` | one line per file | you |
 | an eval scenario for your workflow | `evals/scenarios/<name>.yaml` | see evals/README.md (don't reuse an upstream name) | you |
-| a rule for one repo only | `<repo>/.harness/<same path as above>` | same format; created on first use; wins over the shared file | you |
+| a rule for one repo only | `<repo>/.psai/<same path as above>` | same format; created on first use; wins over the shared file | you |
 | the machinery | `skills/`, `plugins/`, `scripts/`, `install.sh`, `evals/` (except your scenarios), `docs/`, `.claude-plugin/` | | upstream |
 | the core instructions and this map | `instructions/global.md`, `LAYOUT.md`, every `README.md` | | upstream |
 
 Folder READMEs (`<folder>/README.md`) describe each folder and are always allowed.
 
-Precedence, most specific wins: `<repo>/.harness/` > the step or role and its `read:` files > `instructions/owner.md` > `instructions/global.md`.
+Precedence, most specific wins: `<repo>/.psai/` > the step or role and its `read:` files > `instructions/owner.md` > `instructions/global.md`.

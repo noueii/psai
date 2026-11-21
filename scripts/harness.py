@@ -265,7 +265,7 @@ def context(root, shown=None):
 
 if __name__ == "__main__" and len(sys.argv) > 1 and sys.argv[1] == "context":
     # harness.py context [root] [shown-root]: print the injected text
-    r = sys.argv[2] if len(sys.argv) > 2 else os.environ.get("HARNESS_HOME") or os.path.expanduser("~/.harness")
+    r = sys.argv[2] if len(sys.argv) > 2 else os.environ.get("PSAI_HOME") or os.path.expanduser("~/.psai")
     sys.stdout.write(context(r, sys.argv[3] if len(sys.argv) > 3 else None))
     sys.exit(0)
 

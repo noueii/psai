@@ -22,7 +22,7 @@ It then starts the tool headless with the harness loaded for that run only, thro
 
 The raw event stream is saved as `stream.jsonl` next to the copies (`--keep` keeps them).
 
-`HARNESS_HOME` points at the harness copy. Nothing is installed into the real HOME and no credentials are copied: each tool reads its own login in place. pi and opencode are skipped when they have no working provider.
+`PSAI_HOME` points at the harness copy. Nothing is installed into the real HOME and no credentials are copied: each tool reads its own login in place. pi and opencode are skipped when they have no working provider.
 
 A scripted **fake owner** answers each fixed block (`skills/work/escalation.md`) from the scenario file:
 - `review`: answered with `owner.review`;
@@ -33,7 +33,7 @@ A block with no scripted answer is an unexpected escalation and fails the run.
 ## Results
 `graders/grade.py` checks:
 - the printed `[harness] node:` path;
-- per-role `check-diff` results (`HARNESS_TRACE`);
+- per-role `check-diff` results (`PSAI_TRACE`);
 - that the repo's checks pass;
 - the final report's sections;
 - the escalation count;

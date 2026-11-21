@@ -6,3 +6,4 @@
   - **pi and opencode:** skipped when they have no working provider. No credentials are ever copied.
 - Why: the owner forbade installing into the real HOME and copying credentials. Claude's `--bare` needs an API key, which isn't available here, so the OAuth login is used in place.
 - Source: the owner's v2 spec; probes on 2026-11-21 (pi: no key for openai-codex and no minimax balance; opencode: provider unreachable).
+- Note (2026-11-21): with the rename to `~/.psai`, `HARNESS_HOME` is now `PSAI_HOME` and `HARNESS_TRACE` is `PSAI_TRACE`.

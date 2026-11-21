@@ -3,7 +3,7 @@
 # Reads `may_change: anything|tests|nothing` from the brief's frontmatter, lists what changed since
 # <base-commit> (commits, working tree, untracked files) and exits 1 on a violation.
 # TESTS_ALLOW (an extended regex) adds repo-specific test or check paths.
-# Each check appends one line to $HARNESS_TRACE, or <git-dir>/harness-trace (read by trace.sh).
+# Each check appends one line to $PSAI_TRACE, or <git-dir>/psai-trace (read by trace.sh).
 set -euo pipefail
 
 brief="${1:?role brief required}"
@@ -24,12 +24,12 @@ case "$may" in
 esac
 
 n="$(printf '%s' "$changed" | grep -c . || true)"
-HARNESS_TRACE="${HARNESS_TRACE:-$(git rev-parse --absolute-git-dir)/harness-trace}"
+PSAI_TRACE="${PSAI_TRACE:-$(git rev-parse --absolute-git-dir)/psai-trace}"
 if [ -n "$bad" ]; then
-  echo "check-diff role=$role may_change=$may result=violation files=$(echo $bad | tr ' ' ',')" >> "$HARNESS_TRACE"
+  echo "check-diff role=$role may_change=$may result=violation files=$(echo $bad | tr ' ' ',')" >> "$PSAI_TRACE"
   echo "BOUNDARY VIOLATION ($role, may_change: $may) touched:"
   printf '%s\n' "$bad" | sed 's/^/  /'
   exit 1
 fi
-echo "check-diff role=$role may_change=$may result=ok files=$n" >> "$HARNESS_TRACE"
+echo "check-diff role=$role may_change=$may result=ok files=$n" >> "$PSAI_TRACE"
 echo "ok: $role stayed within may_change: $may ($n files changed)"

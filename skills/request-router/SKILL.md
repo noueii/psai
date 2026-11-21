@@ -5,7 +5,7 @@ description: "Decides how to handle a request: runs one of the owner's workflows
 
 # request-router
 
-`H` is the harness root: `$HARNESS_HOME` if set, else `~/.harness`.
+`H` is the harness root: `$PSAI_HOME` if set, else `~/.psai`.
 
 1. **Read the router.** Walk the tree in `H/workflows/ROUTING.yaml`: at each `ask`, pick the answer (`if`) that fits the request and follow its `then`. Also read each workflow's `when` (`H/workflows/*.yaml`). The file may be missing: then there are no workflows yet.
 2. **Decide:**

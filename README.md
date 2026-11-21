@@ -48,7 +48,7 @@ psai never ships files in the places you own (your workflows, steps, roles, guid
 | template | the exact output format, with an example | you | when a step attaches it |
 | knowledge | what's true, and what was decided and why | agents, via the inbox | on demand, via `knowledge/INDEX.md` |
 
-During a task, agents write only to knowledge inboxes and to the task's PR description or report. Everything else changes through `customize-harness`, as a PR you approve. Precedence, most specific wins: `<repo>/.harness/` > the step or role and its `read:` files > `instructions/owner.md` > `instructions/global.md`.
+During a task, agents write only to knowledge inboxes and to the task's PR description or report. Everything else changes through `customize-harness`, as a PR you approve. Precedence, most specific wins: `<repo>/.psai/` > the step or role and its `read:` files > `instructions/owner.md` > `instructions/global.md`.
 
 ## Structure
 ```
@@ -96,14 +96,15 @@ flowchart TD
 
 ## Install details
 It installs only for tools whose config folder exists (`~/.claude`, `~/.config/opencode`, `~/.pi/agent`, `~/.omp/agent`):
-- links `~/.harness` to your clone;
+- links `~/.psai` to your clone (set `PSAI_HOME` to use another path; set it for your tools too, since the skills and plugins read it);
 - links each skill into `~/.claude/skills` and `~/.agents/skills`, never replacing one that isn't its own, and removes its own stale links;
-- installs ONE plugin per tool, which injects the nudge read live from `~/.harness`:
+- installs ONE plugin per tool, which injects the nudge read live from `~/.psai`:
   - **Claude Code:** adds this repo as a marketplace (`.claude-plugin/marketplace.json`) and installs `psai@psai` (a SessionStart hook);
   - **pi:** links the extension `~/.pi/agent/extensions/psai.ts`;
   - **omp:** links the extension `~/.omp/agent/extensions/psai.ts`;
   - **opencode:** writes a stub `~/.config/opencode/plugin/psai.js` that imports the live plugin;
 - removes v1's import lines and marked blocks from `CLAUDE.md` and `AGENTS.md` files, keeping everything else.
+- removes the legacy base link `~/.harness` (its name before the rename to `~/.psai`) if it is a link to a psai clone, and relinks what went through it; anything else at that path is left alone.
 
 It backs up `~/.claude/settings.json` before the plugin CLI first changes it. opencode reads both skill folders, so it loads each skill once and logs a `duplicate skill name` warning; `OPENCODE_DISABLE_CLAUDE_CODE_SKILLS=1` silences it. **Uninstall:** `./install.sh --uninstall` (backups are kept).
 

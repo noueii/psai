@@ -5,7 +5,7 @@ description: "Records a fact, a decision or a proposed rule as a dated, sourced 
 
 # capture-knowledge
 
-`H` is the harness root (`$HARNESS_HOME` or `~/.harness`). Knowledge is descriptive (what's true, what was decided and why). Rules are prescriptive and live in guides, roles and steps, which change only through `customize-harness`.
+`H` is the harness root (`$PSAI_HOME` or `~/.psai`). Knowledge is descriptive (what's true, what was decided and why). Rules are prescriptive and live in guides, roles and steps, which change only through `customize-harness`.
 
 ## Where
 - A finding for one role goes to `H/knowledge/roles/<role>/inbox.md`.

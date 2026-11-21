@@ -4,14 +4,14 @@
 # - the move doesn't follow the workflow (not an edge from the previous node, nor on_exhaust, nor back to the
 #   node that escalated, nor a new run at `start`);
 # - the previous node had a role and check-diff.sh hasn't run for it since.
-# The trace file is $HARNESS_TRACE, or <git-dir>/harness-trace. check-diff.sh writes to the same file.
+# The trace file is $PSAI_TRACE, or <git-dir>/psai-trace. check-diff.sh writes to the same file.
 set -euo pipefail
 wf="${1:?workflow name required}"
 node="${2:?node id required}"
-H="${HARNESS_HOME:-$HOME/.harness}"
+H="${PSAI_HOME:-$HOME/.psai}"
 top="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
-trace="${HARNESS_TRACE:-$(git rev-parse --absolute-git-dir 2>/dev/null || echo "$top")/harness-trace}"
-file="$top/.harness/workflows/$wf.yaml"
+trace="${PSAI_TRACE:-$(git rev-parse --absolute-git-dir 2>/dev/null || echo "$top")/psai-trace}"
+file="$top/.psai/workflows/$wf.yaml"
 [ -f "$file" ] || file="$H/workflows/$wf.yaml"
 [ -f "$file" ] || { echo "trace.sh: no workflow $wf" >&2; exit 2; }
 touch "$trace"

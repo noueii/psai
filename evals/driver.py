@@ -296,8 +296,11 @@ def run_scenario(path, tool, model, budget, keep):
         checks = grade.grade(ph.get("expect") or {}, log, dict(base=base, harness=h, work=w, refs0=refs0, head0=head0,
                                                             remote_refs=remote_refs(base)))
         ok = ok and all(c[1] for c in checks)
+        tr = open(os.path.join(base, "trace.log")).read().split(f"phase {ph.get('name', 'main')}\n")[-1].splitlines()
+        traced = [t.split()[1] for t in tr if t.startswith("node ")]
         results.append({"phase": ph.get("name", "main"), "seconds": log["seconds"], "cost_usd": log["cost"],
-                        "turns": log["turns"], "path": log["path"], "escalations": log["escalations"],
+                        "turns": log["turns"], "path": traced or log["path"],
+                        "role_checks": [t.replace("check-diff ", "") for t in tr if t.startswith("check-diff ")], "escalations": log["escalations"],
                         "questions": log["questions"], "reviews": log["reviews"], "unexpected": log["unexpected"],
                         "final_message": (log["final"] or "")[-1500:],
                         "checks": [{"name": n, "ok": o, "detail": d} for n, o, d in checks]})

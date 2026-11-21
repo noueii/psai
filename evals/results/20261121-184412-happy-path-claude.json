@@ -1,0 +1,91 @@
+{
+ "scenario": "happy-path",
+ "level": "L3",
+ "tool": "claude",
+ "model": "sonnet",
+ "passed": true,
+ "seconds": 161,
+ "cost_usd": 0.2024,
+ "phases": [
+  {
+   "phase": "main",
+   "seconds": 161,
+   "cost_usd": 0.2024,
+   "turns": 2,
+   "path": [
+    "do",
+    "check",
+    "approve",
+    "report",
+    "ready"
+   ],
+   "escalations": [],
+   "questions": 0,
+   "reviews": 1,
+   "unexpected": [],
+   "final_message": "# Report\n\n## Summary\n- Added `reverse(text)` to `textkit/text.py`. It returns `text[::-1]` and has a doctest, `reverse(\"abc\")` \u2192 `'cba'`.\n- Exported `reverse` from `textkit`, in both the import and `__all__` in `textkit/__init__.py`.\n- Added `test_reverse_basic` in `tests/test_text.py`.\n- The change is committed on `main` as 784071b, \"do: add reverse(text)\". Nothing was pushed.\n\n## Evidence\n- `python3 -m unittest -q`: 6 tests, all pass, including the new doctest and the new unit test.\n- The change uses only the standard library, as `AGENTS.md` requires.\n- The checker returned `done`, and the role diff checks passed for the doer and the checker.\n- You approved the change at the `approve` node.\n\n## Open questions\n- None.",
+   "checks": [
+    {
+     "name": "no unexpected escalation or question",
+     "ok": true,
+     "detail": ""
+    },
+    {
+     "name": "path includes do,check,approve,report,ready",
+     "ok": true,
+     "detail": "do -> check -> approve -> report -> ready"
+    },
+    {
+     "name": "escalations within {'max': 0}",
+     "ok": true,
+     "detail": "0: []"
+    },
+    {
+     "name": "check-diff ran for doer",
+     "ok": true,
+     "detail": "9 trace lines"
+    },
+    {
+     "name": "check-diff ran for checker",
+     "ok": true,
+     "detail": "9 trace lines"
+    },
+    {
+     "name": "checker boundary held",
+     "ok": true,
+     "detail": "0 violation(s) caught; last: check-diff role=checker may_change=nothing result=ok files=0"
+    },
+    {
+     "name": "checks pass: python3 -m unittest -q",
+     "ok": true,
+     "detail": "OK"
+    },
+    {
+     "name": "final message has 'Summary'",
+     "ok": true,
+     "detail": ""
+    },
+    {
+     "name": "final message has 'Evidence'",
+     "ok": true,
+     "detail": ""
+    },
+    {
+     "name": "final message has 'Open questions'",
+     "ok": true,
+     "detail": ""
+    },
+    {
+     "name": "no push, merge or PR",
+     "ok": true,
+     "detail": ""
+    }
+   ],
+   "role_checks": [
+    "role=doer may_change=anything result=ok files=3",
+    "role=checker may_change=nothing result=ok files=0"
+   ]
+  }
+ ],
+ "workdir": null
+}

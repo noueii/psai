@@ -1,0 +1,59 @@
+{
+ "scenario": "vanilla-no-workflow",
+ "level": "L3",
+ "tool": "claude",
+ "model": "sonnet",
+ "passed": true,
+ "seconds": 128,
+ "cost_usd": 0.0605,
+ "phases": [
+  {
+   "phase": "main",
+   "seconds": 128,
+   "cost_usd": 0.0605,
+   "turns": 2,
+   "path": [],
+   "escalations": [
+    "route"
+   ],
+   "questions": 0,
+   "reviews": 0,
+   "unexpected": [],
+   "final_message": "Understood, I'm stopping here. I made no changes to the repo, and `reverse(text)` has not been added.",
+   "checks": [
+    {
+     "name": "no unexpected escalation or question",
+     "ok": true,
+     "detail": ""
+    },
+    {
+     "name": "escalations within {'min': 1, 'max': 1}",
+     "ok": true,
+     "detail": "1: ['route']"
+    },
+    {
+     "name": "escalated from route",
+     "ok": true,
+     "detail": "['route']"
+    },
+    {
+     "name": "agent mentions customize-harness",
+     "ok": true,
+     "detail": "Understood, I'm stopping here. I made no changes to the repo, and `reverse(text)` has not been added."
+    },
+    {
+     "name": "work repo unchanged",
+     "ok": true,
+     "detail": "44cb3481400cf9f3db3ea71e5314dd2edb21283c"
+    },
+    {
+     "name": "no push, merge or PR",
+     "ok": true,
+     "detail": ""
+    }
+   ],
+   "role_checks": []
+  }
+ ],
+ "workdir": null
+}

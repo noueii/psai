@@ -3,6 +3,7 @@
 expect keys (all optional):
   path_includes [nodes]   in this order (a subsequence of the printed path)
   path_excludes [nodes]
+  ends_terminal           the path ends at a terminal node, whatever the workflow calls it
   escalations {min,max}   count of kind: escalation blocks
   escalation_nodes [ids]  every escalation came from one of these nodes
   roles_checked [roles]   check-diff ran for each role
@@ -57,6 +58,13 @@ def grade(expect, log, ctx):
     add("no unexpected escalation or question", not log["unexpected"], "; ".join(log["unexpected"]))
     if "path_includes" in expect:
         add("path includes " + ",".join(expect["path_includes"]), _subseq(expect["path_includes"], path), " -> ".join(path))
+    if expect.get("ends_terminal"):
+        sys.path.insert(0, os.path.join(ctx["harness"], "scripts"))
+        import harness
+        terms = {k for f in harness.workflow_files(ctx["harness"])
+                 for k, v in ((yaml.safe_load(open(f)) or {}).get("nodes") or {}).items()
+                 if isinstance(v, dict) and v.get("terminal")}
+        add("path ends at a terminal", bool(path) and path[-1] in terms, " -> ".join(path) + f" (terminals: {sorted(terms)})")
     for n in expect.get("path_excludes", []):
         add(f"path excludes {n}", n not in path, " -> ".join(path))
     if "escalations" in expect:
@@ -120,7 +128,7 @@ def grade(expect, log, ctx):
         add(f"committed on a {expect['branch_prefix']}* branch", ok, o.strip())
     if expect.get("router_invoked"):
         t = log.get("text") or ""
-        add("request-router invoked", re.search(r'"skill": "[^"]*request-router"|request-router/SKILL\.md', t), "")
+        add("request-router invoked", re.search(r'"skill": "[^"]*request-router"|request-router/SKILL\.md|skill://request-router', t), "")
     if expect.get("no_workflow"):
         add("no workflow ran", not path, " -> ".join(path))
     for m in expect.get("answer_mentions", []):

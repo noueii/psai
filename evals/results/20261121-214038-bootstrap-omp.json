@@ -1,0 +1,199 @@
+{
+ "scenario": "bootstrap",
+ "level": "L4",
+ "tool": "omp",
+ "model": "sonnet",
+ "passed": true,
+ "seconds": 629,
+ "cost_usd": 0.4659,
+ "phases": [
+  {
+   "phase": "bootstrap",
+   "seconds": 335,
+   "cost_usd": 0.3401,
+   "turns": 7,
+   "path": [],
+   "role_checks": [],
+   "escalations": [],
+   "questions": 5,
+   "reviews": 1,
+   "unexpected": [],
+   "final_message": "Done. The \"change\" workflow is bootstrapped and validated.\n\n**Branch:** `customize/change` (committed; no remote configured, so no PR opened).\n\n**Files added:**\n- `workflows/change.yaml` \u2014 workflow state machine\n- `workflows/change.cases.yaml` \u2014 5 simulator cases\n- `workflows/ROUTING.yaml` \u2014 routes file-changing requests to `change`\n- `workflows/GRAPHS.md` \u2014 generated diagram\n- `steps/{plan,make,test,approve}.md`\n- `roles/{maker,tester}.md`\n- `knowledge/roles/{maker,tester}/{INDEX.md,inbox.md,README.md}`\n- `instructions/owner.md` \u2014 decide alone, ask only when blocked/loop exhausted\n- `templates/handover.md` \u2014 Summary / Tests / Open\n- `evals/scenarios/change.yaml` \u2014 L3 scenario on `textkit`\n\n**Validation:**\n- `./scripts/check.sh --quick` \u2192 all passed\n- `python3 scripts/simulate.py .` \u2192 5/5 cases passed\n- `python3 scripts/graph.py . --update-readme` \u2192 updated\n\n**Workflow:** `plan \u2192 make \u2192 test \u2192 approve \u2192 ready`\n- Maker implements; tester verifies.\n- Test failures loop back to maker at most 2 times, then escalate.\n- Human approval loop has no limit.\n\nTo use it, merge `customize/change` into your main branch. If you add a remote later, I can open a PR from this branch.",
+   "checks": [
+    {
+     "name": "no unexpected escalation or question",
+     "ok": true,
+     "detail": ""
+    },
+    {
+     "name": "escalations within {'max': 0}",
+     "ok": true,
+     "detail": "0: []"
+    },
+    {
+     "name": "no push, merge or PR",
+     "ok": true,
+     "detail": ""
+    },
+    {
+     "name": "harness has workflows/change.yaml",
+     "ok": true,
+     "detail": ""
+    },
+    {
+     "name": "harness has workflows/change.cases.yaml",
+     "ok": true,
+     "detail": ""
+    },
+    {
+     "name": "harness has workflows/ROUTING.yaml",
+     "ok": true,
+     "detail": ""
+    },
+    {
+     "name": "harness has roles/maker.md",
+     "ok": true,
+     "detail": ""
+    },
+    {
+     "name": "harness has roles/tester.md",
+     "ok": true,
+     "detail": ""
+    },
+    {
+     "name": "harness has knowledge/roles/maker/INDEX.md",
+     "ok": true,
+     "detail": ""
+    },
+    {
+     "name": "harness has knowledge/roles/tester/INDEX.md",
+     "ok": true,
+     "detail": ""
+    },
+    {
+     "name": "new file under evals/scenarios",
+     "ok": true,
+     "detail": "evals/scenarios/change.yaml"
+    },
+    {
+     "name": "maker may_change: anything",
+     "ok": true,
+     "detail": ""
+    },
+    {
+     "name": "tester may_change: tests",
+     "ok": true,
+     "detail": ""
+    },
+    {
+     "name": "ROUTING routes to change",
+     "ok": true,
+     "detail": "['change']"
+    },
+    {
+     "name": "passes: scripts/check.sh --quick",
+     "ok": true,
+     "detail": "check: all passed (quick)"
+    },
+    {
+     "name": "passes: python3 scripts/simulate.py .",
+     "ok": true,
+     "detail": "simulate: 5/5 cases passed"
+    },
+    {
+     "name": "committed on a customize/* branch",
+     "ok": true,
+     "detail": "customize/change\nmain"
+    },
+    {
+     "name": "changes only user-owned paths",
+     "ok": true,
+     "detail": ""
+    }
+   ]
+  },
+  {
+   "phase": "run-fixture-task",
+   "seconds": 294,
+   "cost_usd": 0.1258,
+   "turns": 2,
+   "path": [
+    "plan",
+    "make",
+    "test",
+    "approve",
+    "ready"
+   ],
+   "role_checks": [
+    "role=maker may_change=anything result=ok files=3",
+    "role=maker may_change=anything result=ok files=0",
+    "role=tester may_change=tests result=violation files=handover.md",
+    "role=tester may_change=tests result=ok files=1"
+   ],
+   "escalations": [],
+   "questions": 0,
+   "reviews": 1,
+   "unexpected": [],
+   "final_message": "Done.\n\n## Summary\n\nAdded `reverse(text)` to `textkit/text.py`, exported it from `textkit/__init__.py`, and extended `tests/test_text.py` with edge-case coverage.\n\n## Tests\n\n- Repo tests: pass (`python3 -m unittest -q`, 11 tests)\n- Tester tests: pass (added 5 edge-case `reverse` tests)\n\n## Open\n\nNone.",
+   "checks": [
+    {
+     "name": "no unexpected escalation or question",
+     "ok": true,
+     "detail": ""
+    },
+    {
+     "name": "path includes ready",
+     "ok": true,
+     "detail": "plan -> make -> test -> approve -> ready"
+    },
+    {
+     "name": "escalations within {'max': 1}",
+     "ok": true,
+     "detail": "0: []"
+    },
+    {
+     "name": "check-diff ran for maker",
+     "ok": true,
+     "detail": "11 trace lines"
+    },
+    {
+     "name": "check-diff ran for tester",
+     "ok": true,
+     "detail": "11 trace lines"
+    },
+    {
+     "name": "tester boundary held",
+     "ok": true,
+     "detail": "1 violation(s) caught; last: check-diff role=tester may_change=tests result=ok files=1"
+    },
+    {
+     "name": "checks pass: python3 -m unittest -q",
+     "ok": true,
+     "detail": "OK"
+    },
+    {
+     "name": "final message has 'Summary'",
+     "ok": true,
+     "detail": ""
+    },
+    {
+     "name": "final message has 'Tests'",
+     "ok": true,
+     "detail": ""
+    },
+    {
+     "name": "final message has 'Open'",
+     "ok": true,
+     "detail": ""
+    },
+    {
+     "name": "no push, merge or PR",
+     "ok": true,
+     "detail": ""
+    }
+   ]
+  }
+ ],
+ "workdir": null,
+ "content_saved_to": "evals/results/20261121-214038-bootstrap-omp-content"
+}

@@ -44,6 +44,8 @@ def git_init(path, msg="fixture"):
 def prepare(scn, base):
     h, w = os.path.join(base, "harness"), os.path.join(base, "work")
     shutil.copytree(ROOT, h, ignore=IGNORE, symlinks=True)
+    for rel in ("evals/scenarios/psai", "evals/graders"):  # the agent must not see the expected answers
+        shutil.rmtree(os.path.join(h, rel), ignore_errors=True)
     if scn.get("content"):
         src = os.path.join(ROOT, "evals", "fixtures", scn["content"])
         shutil.copytree(src, h, dirs_exist_ok=True, ignore=shutil.ignore_patterns("README.md"))
@@ -195,6 +197,7 @@ class Omp:
         self.p = subprocess.Popen(args, cwd=cwd, env=env, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                                   stderr=subprocess.DEVNULL, text=True)
         self.texts, self.cost, self.n = [], 0.0, 0
+        self.raw = open(os.path.join(os.path.dirname(h), "stream.jsonl"), "a")
 
     def _send(self, obj):
         self.p.stdin.write(json.dumps(obj) + "\n")
@@ -202,6 +205,7 @@ class Omp:
 
     def _wait(self, pred):
         for line in self.p.stdout:
+            self.raw.write(line)
             try:
                 d = json.loads(line)
             except json.JSONDecodeError:
@@ -212,6 +216,8 @@ class Omp:
                     for c in m.get("content", []) or []:
                         if isinstance(c, dict) and c.get("type") == "text":
                             self.texts.append(c.get("text", ""))
+                        elif isinstance(c, dict) and c.get("type") not in ("thinking", "redacted_thinking"):
+                            self.texts.append(json.dumps(c))  # tool calls, so graders see what was invoked
             if pred(d):
                 return d
         return None

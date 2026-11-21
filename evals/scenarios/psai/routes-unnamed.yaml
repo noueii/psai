@@ -3,7 +3,7 @@ level: L3
 about: A request that matches a workflow without naming it is routed through that workflow.
 content: harness-content
 fixture: textkit
-task: The README doesn't say what wordcount does. Add one line about it.
+task: Add one line to the README saying textkit needs nothing beyond the Python standard library.
 owner:
   review: Approved.
   max_turns: 6

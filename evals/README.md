@@ -12,13 +12,15 @@ evals/run.sh --tool all                         # Claude Code and omp
 
 ## How a run works
 `driver.py` builds a throwaway directory per run:
-- **harness copy:** a copy of this harness, with the scenario's `content` overlaid;
+- **harness copy:** a copy of this harness without the upstream scenarios and graders (the agent never sees the expected answers), with the scenario's `content` overlaid;
 - **fixture repo copy:** its `origin` is a local bare repo;
 - **`gh` shim:** refuses every call.
 
-It then starts the tool headless with the harness loaded for that run only:
-- **Claude Code:** `--plugin-dir`, `--append-system-prompt-file`, `--setting-sources project`, `--no-session-persistence`;
-- **omp:** `--config` with `skills.customDirectories` and user skill folders off, plus `--append-system-prompt`.
+It then starts the tool headless with the harness loaded for that run only, through the same plugin a real install uses:
+- **Claude Code:** `--plugin-dir plugins/claude` (the SessionStart nudge) plus a throwaway plugin holding the skills, `--setting-sources project`, `--no-session-persistence`;
+- **omp:** `--extension plugins/omp/psai.ts`, and `--config` with `skills.customDirectories` and user skill folders off.
+
+The raw event stream is saved as `stream.jsonl` next to the copies (`--keep` keeps them).
 
 `HARNESS_HOME` points at the harness copy. Nothing is installed into the real HOME and no credentials are copied: each tool reads its own login in place. pi and opencode are skipped when they have no working provider.
 

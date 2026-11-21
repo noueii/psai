@@ -1,0 +1,67 @@
+{
+ "scenario": "routes-unnamed",
+ "level": "L3",
+ "tool": "omp",
+ "model": "sonnet",
+ "passed": false,
+ "seconds": 17,
+ "cost_usd": 0.0102,
+ "phases": [
+  {
+   "phase": "main",
+   "seconds": 17,
+   "cost_usd": 0.0102,
+   "turns": 1,
+   "path": [],
+   "role_checks": [],
+   "escalations": [],
+   "questions": 0,
+   "reviews": 0,
+   "unexpected": [],
+   "final_message": "Done. Added: \"Splits on spaces.\"",
+   "checks": [
+    {
+     "name": "no unexpected escalation or question",
+     "ok": true,
+     "detail": ""
+    },
+    {
+     "name": "path includes do,check,approve,report,ready",
+     "ok": false,
+     "detail": ""
+    },
+    {
+     "name": "escalations within {'max': 0}",
+     "ok": true,
+     "detail": "0: []"
+    },
+    {
+     "name": "check-diff ran for doer",
+     "ok": false,
+     "detail": "1 trace lines"
+    },
+    {
+     "name": "check-diff ran for checker",
+     "ok": false,
+     "detail": "1 trace lines"
+    },
+    {
+     "name": "checks pass: python3 -m unittest -q",
+     "ok": true,
+     "detail": "OK"
+    },
+    {
+     "name": "no push, merge or PR",
+     "ok": true,
+     "detail": ""
+    },
+    {
+     "name": "request-router invoked",
+     "ok": false,
+     "detail": ""
+    }
+   ]
+  }
+ ],
+ "workdir": null
+}

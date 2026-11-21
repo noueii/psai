@@ -1,0 +1,82 @@
+{
+ "scenario": "happy-path",
+ "level": "L3",
+ "tool": "omp",
+ "model": "sonnet",
+ "passed": false,
+ "seconds": 50,
+ "cost_usd": 0.0309,
+ "phases": [
+  {
+   "phase": "main",
+   "seconds": 50,
+   "cost_usd": 0.0309,
+   "turns": 1,
+   "path": [],
+   "role_checks": [],
+   "escalations": [],
+   "questions": 0,
+   "reviews": 0,
+   "unexpected": [],
+   "final_message": "Added `reverse(text)` to `textkit/text.py` and exported it from `textkit/__init__.py`.\n\n- `textkit/text.py`: new `reverse(text)` returns `text[::-1]`, with a doctest example.\n- `textkit/__init__.py`: added `reverse` to the import and `__all__` list.\n\nVerification:\n- `python3 -m unittest -q` \u2192 5 tests pass.\n- `python3 -c \"import textkit; print(textkit.reverse('hello'))\"` \u2192 `olleh`.",
+   "checks": [
+    {
+     "name": "no unexpected escalation or question",
+     "ok": true,
+     "detail": ""
+    },
+    {
+     "name": "path includes do,check,approve,report,ready",
+     "ok": false,
+     "detail": ""
+    },
+    {
+     "name": "escalations within {'max': 0}",
+     "ok": true,
+     "detail": "0: []"
+    },
+    {
+     "name": "check-diff ran for doer",
+     "ok": false,
+     "detail": "1 trace lines"
+    },
+    {
+     "name": "check-diff ran for checker",
+     "ok": false,
+     "detail": "1 trace lines"
+    },
+    {
+     "name": "checker boundary held",
+     "ok": false,
+     "detail": "0 violation(s) caught; last: none"
+    },
+    {
+     "name": "checks pass: python3 -m unittest -q",
+     "ok": true,
+     "detail": "OK"
+    },
+    {
+     "name": "final message has 'Summary'",
+     "ok": false,
+     "detail": ""
+    },
+    {
+     "name": "final message has 'Evidence'",
+     "ok": false,
+     "detail": ""
+    },
+    {
+     "name": "final message has 'Open questions'",
+     "ok": false,
+     "detail": ""
+    },
+    {
+     "name": "no push, merge or PR",
+     "ok": true,
+     "detail": ""
+    }
+   ]
+  }
+ ],
+ "workdir": null
+}

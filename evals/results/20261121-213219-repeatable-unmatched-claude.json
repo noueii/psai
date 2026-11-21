@@ -1,25 +1,26 @@
 {
- "scenario": "vanilla-no-workflow",
+ "scenario": "repeatable-unmatched",
  "level": "L3",
  "tool": "claude",
  "model": "sonnet",
  "passed": true,
- "seconds": 128,
- "cost_usd": 0.0605,
+ "seconds": 130,
+ "cost_usd": 0.0686,
  "phases": [
   {
    "phase": "main",
-   "seconds": 128,
-   "cost_usd": 0.0605,
+   "seconds": 130,
+   "cost_usd": 0.0686,
    "turns": 2,
    "path": [],
+   "role_checks": [],
    "escalations": [
     "route"
    ],
    "questions": 0,
    "reviews": 0,
    "unexpected": [],
-   "final_message": "Understood, I'm stopping here. I made no changes to the repo, and `reverse(text)` has not been added.",
+   "final_message": "Understood. I've stopped. I haven't created a workflow, a schedule, or this week's report, and I haven't changed any files.\n\nIf you want to pick it up later, just ask.",
    "checks": [
     {
      "name": "no unexpected escalation or question",
@@ -39,20 +40,29 @@
     {
      "name": "agent mentions customize-harness",
      "ok": true,
-     "detail": "Understood, I'm stopping here. I made no changes to the repo, and `reverse(text)` has not been added."
+     "detail": "Understood. I've stopped. I haven't created a workflow, a schedule, or this week's report, and I haven't changed any files.\n\nIf you want to pick it up later, just ask."
     },
     {
      "name": "work repo unchanged",
      "ok": true,
-     "detail": "44cb3481400cf9f3db3ea71e5314dd2edb21283c"
+     "detail": "e61101cea0430195683288d31974df0a8ce0db9c"
     },
     {
      "name": "no push, merge or PR",
      "ok": true,
      "detail": ""
+    },
+    {
+     "name": "request-router invoked",
+     "ok": true,
+     "detail": ""
+    },
+    {
+     "name": "no workflow ran",
+     "ok": true,
+     "detail": ""
     }
-   ],
-   "role_checks": []
+   ]
   }
  ],
  "workdir": null

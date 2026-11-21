@@ -46,11 +46,11 @@ def current_run(path=None):
 
 
 def workflow(root, name):
-    proj = ledger.project_of(None)
-    for p in (os.path.join(proj, ".psai", "workflows", f"{name}.yaml"), os.path.join(root, "workflows", f"{name}.yaml")):
-        if os.path.exists(p):
-            return yaml.safe_load(open(p)) or {}
-    return {}
+    import resolve  # noqa: PLC0415
+    try:
+        return yaml.safe_load(open(resolve.resolve("workflow", name, h=resolve.home(root)))) or {}
+    except (resolve.ResolveError, OSError):
+        return {}
 
 
 def analyse(wf, run):

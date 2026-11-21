@@ -5,10 +5,10 @@ description: "Builds and changes the owner's harness setup WITH the owner: boots
 
 # customize-harness
 
-`H` is the harness root (`$PSAI_HOME` or `~/.psai`), usually the owner's fork of psai. Everything you write is filed per `H/LAYOUT.md`, and ONLY in places LAYOUT marks as the owner's. Never edit upstream-owned files (skills, scripts, install.sh, evals except new scenarios, LAYOUT.md, folder READMEs, docs, instructions/global.md), so upstream updates merge cleanly. **Stage, never publish:** edit and validate in the stage worktree (`psai sync stage` prints it; `psai` is `H/scripts/psai.py`), never in the live `H`, which sessions read. Make no branch, commit or PR: the retro at the end of the task (or a `sync` node) carries everything in one PR the owner merges.
+Run `psai` as the nudge says if it isn't on PATH. Everything you write is filed per LAYOUT.md (`psai resolve file psai:LAYOUT.md`), and ONLY in places LAYOUT marks as the owner's. Never edit upstream-owned files (skills, scripts, install.sh, evals except new scenarios, LAYOUT.md, folder READMEs, docs, instructions/global.md), so upstream updates merge cleanly. **Stage, never publish:** edit and validate in the stage worktree `S` (`psai sync stage` prints it), never in the live setup, which sessions read. Make no branch, commit or PR: the retro at the end of the task (or a `sync` node) carries everything in one PR the owner merges.
 
 ## How to ask
-Ask the owner ONE question per message, with the fixed block, kind `question`, node `customize` (`H/skills/work/escalation.md`). Offer options with your recommendation first. Don't ask what the owner already told you or what LAYOUT.md settles.
+Ask the owner ONE question per message, with the fixed block, kind `question`, node `customize` (`psai resolve file psai:skills/work/escalation.md`). Offer options with your recommendation first. Don't ask what the owner already told you or what LAYOUT.md settles.
 
 ## Bootstrap (no workflows yet)
 1. **Interview** the owner about how they work, one question at a time. Cover EVERY topic below before proposing anything; skip a topic only if the owner already answered it:
@@ -31,17 +31,17 @@ Ask the owner ONE question per message, with the fixed block, kind `question`, n
 
 ## Add or change one piece
 1. Ask what should change and why, if that isn't clear yet.
-2. Ask the scope: everywhere, this workflow only, or this repo only (`<repo>/.psai/`, same layout, created on first use).
+2. Ask the scope: everywhere, or this workflow only. A rule for one repo only belongs in that repo's own AGENTS.md or docs, not in psai: offer to write it there instead.
 3. Pick the place and format from LAYOUT.md.
 
 ## Skills for a role or step
 Name them in the file's frontmatter, `skills: {required: [...], optional: [...]}`. For each one:
-1. Run `python3 H/scripts/harness.py skills` (the live registry). Installed anywhere: just reference it by name.
-2. Someone else's: add a pinned entry to `H/skills.yaml` (a tag or commit, never a branch; format in `H/my-skills/README.md`).
-3. Doesn't exist: write it with the owner in `H/my-skills/<name>/SKILL.md`, one question at a time.
+1. Run `psai skills` (the live registry). Installed anywhere: just reference it by name.
+2. Someone else's: add a pinned entry to `skills.yaml` (a tag or commit, never a branch; format in `psai resolve file my-skills/README.md`).
+3. Doesn't exist: write it with the owner in `my-skills/<name>/SKILL.md`, one question at a time.
 4. Only for one repo: `<repo>/.agents/skills/<name>/`, linked from `<repo>/.claude/skills/<name>`, and listed as optional.
 
-Unmanaged skills (`harness.py skills --unmanaged`): offer to adopt one with `psai adopt <name>` (it moves the skill into the live `my-skills/` or `skills.yaml`, which the retro's PR carries). Then run `H/scripts/check.sh --quick`.
+Unmanaged skills (`psai skills --unmanaged`): offer to adopt one with `psai adopt <name>` (it moves the skill into the live `my-skills/` or `skills.yaml`, which the retro's PR carries). Then run `psai check --quick`.
 
 ## Build
 1. In the stage worktree, write the files per LAYOUT.md, using the formats in each folder's README.md. For a role, also create `knowledge/roles/<role>/INDEX.md` and `inbox.md`.
@@ -50,10 +50,10 @@ Unmanaged skills (`harness.py skills --unmanaged`): offer to adopt one with `psa
    - its branch in `workflows/ROUTING.yaml` (create the file for the first workflow);
    - its simulator cases `workflows/<name>.cases.yaml`, covering every edge you added, every loop limit and every escalation;
    - at least one eval scenario `evals/scenarios/<name>.yaml`.
-4. Validate in the stage worktree `S`:
-   - `S/scripts/check.sh --quick`;
-   - `python3 S/scripts/simulate.py S`;
-   - `python3 S/scripts/graph.py S --update-readme`, which writes `workflows/GRAPHS.md`.
+4. Validate the stage worktree `S`:
+   - `psai check --quick S`;
+   - `psai simulate S`;
+   - `psai graph S --update-readme`, which writes `workflows/GRAPHS.md`.
 
    Fix until all three pass.
 5. Leave it staged: no branch, commit or PR. Report what you staged, where, and how to try it; the retro's PR (or sync's) delivers it.

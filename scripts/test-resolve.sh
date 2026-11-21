@@ -58,6 +58,32 @@ python3 -c "import json,sys; d=json.loads(sys.argv[1]); sys.exit(0 if d['stack']
 [ "$(PSAI_HOME="$H" python3 "$ROOT/scripts/psai.py" resolve role example:doer 2>/dev/null)" = "$S/example/roles/doer.md" ] \
   && pass "psai resolve runs resolve.py" || fail "psai resolve"
 
+# callers go through resolve: validation and the engine's lookups across stacks
+val() { PSAI_HOME="$H" python3 -c "
+import sys; sys.path.insert(0, '$ROOT/scripts'); import harness
+e = harness.validate(sys.argv[1]); print('\n'.join(e)); sys.exit(1 if e else 0)" "$1"; }
+val "$S/other" >/dev/null && pass "validate: other's cross-stack read and handoff resolve" || fail "validate other: $(val "$S/other")"
+cp -r "$S/other" "$T/o2"; sed -i 's|example:guides/example-rules.md|example:guides/nope.md|' "$T/o2/steps/sort.md"
+grep -q 'example:guides/nope.md' <<< "$(val "$T/o2")" && pass "validate: rejects a cross-stack read that doesn't exist" || fail "validate: missing cross-stack read"
+cp -r "$S/other" "$T/o3"; sed -i 's|example:guides/example-rules.md|example:steps/do.md|' "$T/o3/steps/sort.md"
+grep -q 'not exported' <<< "$(val "$T/o3")" && pass "validate: rejects a read of another stack's private file" || fail "validate: private cross-stack read"
+cp -r "$S/other" "$T/o4"; sed -i 's|handoff: example:example|handoff: example:ghost|' "$T/o4/workflows/triage.yaml"
+grep -q 'handoff to missing workflow' <<< "$(val "$T/o4")" && pass "validate: rejects a handoff to a missing workflow" || fail "validate: missing handoff"
+n="$(cd "$T" && PSAI_HOME="$H" HOME="$T" python3 "$ROOT/scripts/psai.py" node other:triage sort 2>/dev/null)"
+grep -q "^  read: $O/overrides/example/guides/example-rules.md" <<< "$n" && grep -q "^  read: $S/other/guides/private.md" <<< "$n" \
+  && grep -q "^  brief: $S/other/roles/sorter.md" <<< "$n" && grep -q "^  knowledge: $S/other/knowledge/roles/sorter/INDEX.md" <<< "$n" \
+  && pass "psai node: reads resolve from the node's stack, overrides included" || fail "psai node other:triage sort: $n"
+grep -q '^workflow: other:triage' <<< "$n" && pass "psai node: workflows are stack:name in the stacks layout" || fail "psai node: name"
+(cd "$T" && PSAI_HOME="$H" HOME="$T" python3 "$ROOT/scripts/psai.py" node other:triage change 2>/dev/null) | grep -q '^handoff: continue in example:example' \
+  && pass "psai node: a handoff names the target stack:workflow" || fail "psai node: handoff"
+r="$(PSAI_HOME="$H" HOME="$T" python3 "$ROOT/scripts/psai.py" route 2>/dev/null)"
+grep -q '^- other:triage: Sorting' <<< "$r" && grep -q '^- example:example: ' <<< "$r" && grep -q '^## other: A second neutral' <<< "$r" \
+  && pass "psai route: every stack's tree and workflows" || fail "psai route: $r"
+(cd "$T" && PSAI_HOME="$H" python3 "$ROOT/scripts/psai.py" simulate other 2>/dev/null) | grep -q '^simulate: 2/2 cases passed' \
+  && pass "psai simulate takes a stack name" || fail "psai simulate other"
+(cd "$T" && PSAI_HOME="$H" python3 "$ROOT/scripts/psai.py" graph other --check-readme >/dev/null 2>&1) \
+  && pass "psai graph takes a stack name; other's diagrams are fresh" || fail "psai graph other"
+
 # stack.yaml
 sv() { python3 -c "
 import sys, yaml; sys.path.insert(0, '$ROOT/scripts'); import resolve

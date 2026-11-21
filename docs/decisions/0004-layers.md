@@ -10,3 +10,4 @@
   During a task, agents write only to knowledge inboxes and the task's PR description or final report. Everything else changes only through `customize-harness`, as a PR the owner approves. Preferences are rules, so they live in guides; knowledge is facts, decisions and inboxes.
 - Why: rules and facts age differently and need different owners; agents must not rewrite their own rules mid-task.
 - Source: the owner's v2 spec.
+- Note (2026-11-22, [0011](0011-framework-and-stacks.md)): there is no repo-level `.psai/` layer any more; a repo's own rules live in its AGENTS.md or docs. Knowledge is additive across a stack and the overlay `nostack`.

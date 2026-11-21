@@ -16,7 +16,7 @@ A tool-agnostic agent harness for Claude Code, opencode, pi and oh-my-pi (omp). 
 
 From then on, give agents tasks as usual. `work` routes each task to one of your workflows and runs it, then runs a retro.
 
-`install.sh` also links the `psai` command into `~/.local/bin`: `psai status`, `psai doctor`, `psai sync`, `psai retro`, `psai update`, `psai adopt <skill>`, `psai check`, `psai context`, `psai graph`, `psai simulate`, `psai resolve`, `psai install`.
+`install.sh` also links the `psai` command into `~/.local/bin`: `psai status`, `psai doctor`, `psai sync`, `psai retro`, `psai update`, `psai adopt <skill>`, `psai check`, `psai context`, `psai graph`, `psai simulate`, `psai resolve`, `psai route`, `psai node`, `psai trace`, `psai check-diff`, `psai install`.
 
 ## Get updates: the sync skill
 ```sh
@@ -57,7 +57,7 @@ psai never ships files in the places you own (your workflows, steps, roles, guid
 | template | the exact output format, with an example | you | when a step attaches it |
 | knowledge | what's true, and what was decided and why | agents, via the inbox | on demand, via `knowledge/INDEX.md` |
 
-During a task, agents write only to knowledge inboxes and to the task's report. Everything else changes through `customize-harness`, which only stages it (in `.state/stage`, a separate worktree); the retro's (or sync's) one PR carries it, and you approve it. Precedence, most specific wins: `<repo>/.psai/` > the step or role and its `read:` files > `instructions/owner.md` > `instructions/global.md`.
+During a task, agents write only to knowledge inboxes and to the task's report. Everything else changes through `customize-harness`, which only stages it (in `.state/stage`, a separate worktree); the retro's (or sync's) one PR carries it, and you approve it. Precedence, most specific wins: the step or role and its `read:` files > `instructions/owner.md` > `instructions/global.md`. A rule for one repo goes in that repo's own AGENTS.md or docs.
 
 ## Structure
 ```
@@ -110,7 +110,7 @@ flowchart TD
 
 ## Install details
 It installs only for tools whose config folder exists (`~/.claude`, `~/.config/opencode`, `~/.pi/agent`, `~/.omp/agent`):
-- links `~/.psai` to your clone (set `PSAI_HOME` to use another path; set it for your tools too, since the skills and plugins read it);
+- links `~/.psai` to your clone (set `PSAI_HOME` to use another path; set it for your tools too, since the plugins and the `psai` command read it). Skills never build paths: they find every file by name with `psai resolve`, `psai route` and `psai node`;
 - links each skill into `~/.claude/skills` and `~/.agents/skills`, never replacing one that isn't its own, and removes its own stale links: psai's skills, your `my-skills/`, and each pinned `skills.yaml` entry (fetched into the git-ignored `.skills-cache/`; network only when the pin changes);
 - drops a `README-psai.md` into both folders saying which skills are psai's and how to adopt the rest (`./install.sh --adopt <name>`);
 - installs ONE plugin per tool, which injects the nudge read live from `~/.psai`:

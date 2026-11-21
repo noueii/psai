@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Usage: trace.sh <workflow> <node>
+# Usage: trace.sh <workflow> <node>   (or `psai trace <workflow> <node>`; the workflow is stack:name or a bare name)
 # Run on entering every workflow node. It records the node, and refuses (exit 1, with the reason) when:
 # - the move doesn't follow the workflow (not an edge from the previous node, nor on_exhaust, nor back to the
 #   node that escalated, nor a new run at `start`);
@@ -9,20 +9,18 @@
 set -euo pipefail
 wf="${1:?workflow name required}"
 node="${2:?node id required}"
-H="${PSAI_HOME:-$HOME/.psai}"
+FW="$(cd -P "$(dirname "$0")" && pwd)/../.."   # the framework: this file is skills/work/trace.sh in it
 top="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
 trace="${PSAI_TRACE:-$(git rev-parse --absolute-git-dir 2>/dev/null || echo "$top")/psai-trace}"
-file="$top/.psai/workflows/$wf.yaml"
-[ -f "$file" ] || file="$H/workflows/$wf.yaml"
-[ -f "$file" ] || { echo "trace.sh: no workflow $wf" >&2; exit 2; }
+file="$(python3 "$FW/scripts/resolve.py" workflow "$wf")" || { echo "trace.sh: no workflow $wf" >&2; exit 2; }
 touch "$trace"
-python3 - "$file" "$wf" "$node" "$trace" "$H" <<'EOF'
+python3 - "$file" "$wf" "$node" "$trace" "$FW" <<'EOF'
 import sys, yaml
-path, wf_name, node, trace, h = sys.argv[1:]
+path, wf_name, node, trace, fw = sys.argv[1:]
 def ledger(*args):  # the session ledger (scripts/ledger.py): best-effort
     import os, subprocess
-    if os.path.exists(f"{h}/scripts/ledger.py"):
-        subprocess.run([sys.executable, f"{h}/scripts/ledger.py", *args], capture_output=True)
+    if os.path.exists(f"{fw}/scripts/ledger.py"):
+        subprocess.run([sys.executable, f"{fw}/scripts/ledger.py", *args], capture_output=True)
 wf = yaml.safe_load(open(path))
 nodes = wf["nodes"]
 if node not in nodes:

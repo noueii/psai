@@ -8,7 +8,7 @@ psai ships VANILLA and is meant to be forked: the machinery plus empty, document
   - flat `skills/<name>/SKILL.md`, with `name` equal to the folder name;
   - quoted `description` saying what the skill does and "Use when ...";
   - all model-invoked: never `disable-model-invocation`;
-  - paths use `~/.psai/...` (or `$PSAI_HOME`).
+  - no paths into `~/.psai` or `$PSAI_HOME`: find files by name with `psai resolve` (and `psai route`, `psai node`); only the plugins' `psai-bootstrap` lines know the home.
 - **Placement:** every folder has a README.md (what belongs there, format and naming, one example). Files go where LAYOUT.md says. A new kind of file needs a LAYOUT row first.
 - **Formats:**
   - workflows: workflows/README.md;

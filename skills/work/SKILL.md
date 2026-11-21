@@ -5,21 +5,21 @@ description: "The harness engine: runs a chosen workflow node by node with fresh
 
 # work
 
-`H` is the harness root: `$PSAI_HOME` if set, else `~/.psai`. A repo may override any file with the same path under `<repo>/.psai/`; the repo's copy wins. The workflow file is the source of truth; this skill only says how to run it.
+Every file is found by name through the `psai` command (the nudge says how to run it if it isn't on PATH): never build paths yourself. A workflow is `stack:name`, or a bare name when one stack has it. The workflow file is the source of truth; this skill only says how to run it.
 
 ## 1. Route
 The `request-router` skill decides which workflow runs (or none). This file is the engine you read once it has. If you got here without routing, run request-router first. Never improvise a workflow.
 
 ## 2. Run the workflow
-Load `H/workflows/<name>.yaml` and begin at `start`. On entering EVERY node, the first one and `ready` included, first run `H/skills/work/trace.sh <workflow> <id>`. It records the path and refuses a move that isn't an edge of the workflow, or a move on from a role node whose diff wasn't checked. If it refuses, fix the cause; never work around it. Never skip a node because a task looks small: sizing is already in the workflow's edges. Then:
-- Read its `step:` file and every file in that step's `read:` list.
-- **`role: <r>`:** delegate (section 4) to a FRESH agent. Give it:
-  - its brief `H/roles/<r>.md` and the files in the brief's `read:` list;
-  - its knowledge `H/knowledge/roles/<r>/INDEX.md`;
+Read the workflow (`psai resolve workflow <workflow>`) and begin at `start`. On entering EVERY node, the first one and `ready` included, first run `psai trace <workflow> <id>`. It records the path and refuses a move that isn't an edge of the workflow, or a move on from a role node whose diff wasn't checked. If it refuses, fix the cause; never work around it. Never skip a node because a task looks small: sizing is already in the workflow's edges. Then run `psai node <workflow> <id>`: it prints the node's files, resolved. Then:
+- Read its step and every `read:` file listed under it.
+- **`role: <r>`:** delegate (section 4) to a FRESH agent. Give it what `psai node` lists for the role:
+  - its brief and the brief's `read:` files;
+  - its knowledge files;
   - the step;
   - the spec;
   - the base commit;
-  - its skills: the output of `python3 H/scripts/harness.py skills brief <role file> <step file>` (the role's and the step's `skills:`, resolved). Exit 3 means a required skill is missing: don't start the role; escalate from this node, offering to install it with `customize-harness`. A missing optional skill goes in the final report; carry on.
+  - its skills (the role's and the step's `skills:`, resolved). Exit 3 from `psai node` means a required skill is missing: don't start the role; escalate from this node, offering to install it with `customize-harness`. A missing optional skill goes in the final report; carry on.
 
   With `fan_out`, start one fresh agent per lens, never merging lenses. Run section 3 after EVERY role agent, fan-out agents included.
 - **`human: true`:** ask the human with the fixed block, kind `review` (escalation.md), and wait.
@@ -32,12 +32,12 @@ Then choose the edge:
 
 Special nodes:
 - **`escalate`:** emit the block (kind `escalation`, with the asking node), wait for the answer, then resume the node that asked (`return: caller`).
-- **`handoff: <wf>`:** continue in that workflow at its start, carrying the spec.
+- **`handoff: <wf>`:** continue in that workflow (as `psai node` names it) at its start, carrying the spec.
 - **`terminal`:** run `trace.sh` for it. If this run passed no `retro` node, run the retro skill now (always: it's how the harness learns). Then end with the final report written by the step before it, plus the retro's `## Retro` section, as your final message.
 
 ## 3. Role boundaries
 1. Before each role, commit pending work so the tree is clean. Record `base=$(git rev-parse HEAD)`.
-2. After the role returns, run `H/skills/work/check-diff.sh H/roles/<r>.md "$base"`. It reads `may_change` from the brief.
+2. After the role returns, run `psai check-diff <workflow> <id> "$base"`. It reads `may_change` from the role's brief.
 3. **On a violation:** run `git reset --hard "$base" && git clean -fd`, then re-run the role with the violation quoted. A second violation: escalate.
 4. Otherwise, commit the role's work: `git add -A && git commit -m "<node>: <summary>"`.
 
@@ -49,4 +49,4 @@ Every role agent starts with a FRESH context and runs in the foreground: wait fo
 - **pi:** no subagents. Spawn `PSAI_ROLE=<r> pi -p --no-session "<prompt>"` through bash (`PSAI_ROLE` switches its psai nudge to role mode). If that fails, play the role yourself, sequentially: re-read the brief and work only from the spec.
 
 ## Never
-Never end a turn with a plain question: ask only with the fixed block. Never merge, deploy, push, or post to people unless a step says so and the human approved it; the retro and sync skills' one PR branch to the owner's fork is the exception. Escalate only by escalation.md and the owner's rules in `H/instructions/owner.md`, if it exists.
+Never end a turn with a plain question: ask only with the fixed block. Never merge, deploy, push, or post to people unless a step says so and the human approved it; the retro and sync skills' one PR branch to the owner's fork is the exception. Escalate only by the fixed block (`psai route` prints where it is) and the owner rules in your nudge.

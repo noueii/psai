@@ -9,6 +9,7 @@ import sys
 import yaml
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import resolve as res  # noqa: E402
 import skills as skillreg  # noqa: E402
 
 SPECIAL = ("terminal", "return", "handoff")
@@ -80,10 +81,44 @@ def routing_leaves(tree, out=None):
     return out
 
 
-def validate(root):
+def stack_root(arg):
+    """A stack given as a path (a folder) or as an installed stack's name, as a folder."""
+    if os.path.isdir(arg):
+        return arg
+    st = res.home().get(arg)
+    if st is None:
+        raise SystemExit(f"no stack or folder {arg!r}")
+    return st.path
+
+
+def stack_name(root):
+    return res.load_stack(root).get("name") or res.OVERLAY
+
+
+def ref_error(root, kind, ref, h=None):
+    """None if `ref` (as written in a file of the stack at `root`) resolves, else why not. A ref to the stack's own
+    files is checked in `root`; a `stack:` ref to another stack goes through psai resolve, exports included."""
+    name = stack_name(root)
+    sname, rest = res.split_ref(ref)
+    if sname is None or sname == name:
+        if kind == "skill":
+            return None
+        p = res.rel_path(kind, rest)
+        return None if os.path.exists(os.path.join(root, p)) else f"{p} does not exist"
+    try:
+        res.resolve(kind, ref, frm=name, h=h or res.home())
+        return None
+    except res.ResolveError as e:
+        return e.msg
+
+
+def validate(root, h=None):
+    """Errors in one stack's content (a harness root). Refs to other stacks resolve through the home `h`
+    ($PSAI_HOME by default)."""
     errs = []
     rel = lambda p: os.path.relpath(p, root)
     exists = lambda p: os.path.exists(os.path.join(root, p))
+    bad = lambda kind, ref: ref_error(root, kind, ref, h)
 
     def check_reads(path):
         fm = frontmatter(path)
@@ -92,8 +127,9 @@ def validate(root):
             errs.append(f"{rel(path)}: read: must be a list")
             return fm
         for r in reads:
-            if not exists(r):
-                errs.append(f"{rel(path)}: read: {r} does not exist")
+            why = bad("file", r)
+            if why:
+                errs.append(f"{rel(path)}: read: {r}: {why}")
         return fm
 
     for d in ("steps", "roles"):
@@ -133,16 +169,17 @@ def validate(root):
         for nid, n in nodes.items():
             n = n or {}
             if is_special(n):
-                if "handoff" in n and not os.path.exists(os.path.join(root, "workflows", f"{n['handoff']}.yaml")):
-                    errs.append(f"{where}: {nid}: handoff to missing workflow {n['handoff']!r}")
+                if "handoff" in n and bad("workflow", str(n["handoff"])):
+                    errs.append(f"{where}: {nid}: handoff to missing workflow {n['handoff']!r}: "
+                                f"{bad('workflow', str(n['handoff']))}")
                 continue
             if "step" not in n:
                 if not n.get("skill"):  # a skill node (e.g. retro, sync) may stand without a step
                     errs.append(f"{where}: {nid}: missing step")
-            elif not exists(n["step"]):
-                errs.append(f"{where}: {nid}: step {n['step']} does not exist")
-            if n.get("role") and not exists(f"roles/{n['role']}.md"):
-                errs.append(f"{where}: {nid}: role {n['role']!r} has no brief roles/{n['role']}.md")
+            elif bad("file", n["step"]):
+                errs.append(f"{where}: {nid}: step {n['step']}: {bad('file', n['step'])}")
+            if n.get("role") and bad("role", str(n["role"])):
+                errs.append(f"{where}: {nid}: role {n['role']!r} has no brief: {bad('role', str(n['role']))}")
             if n.get("skill") and not exists(f"skills/{n['skill']}/SKILL.md") and not os.path.exists(
                     os.path.join(os.path.dirname(__file__), "..", "skills", n["skill"], "SKILL.md")):
                 errs.append(f"{where}: {nid}: skill {n['skill']!r} not found")
@@ -252,16 +289,29 @@ def check_layout(root, layout_md, dirs=("workflows", "steps", "roles", "guides",
     return errs
 
 
+def psai_cmd(root, shown=None):
+    """How an agent runs the psai command, as shown in the nudge: the framework's psai.py, through `shown` (the home as
+    the plugins print it, e.g. ~/.psai) when the framework sits under the home."""
+    fw, real = os.path.realpath(res.home(root).framework), os.path.realpath(root)
+    if shown and fw == real:
+        path = shown
+    elif shown and fw.startswith(real + os.sep):
+        path = f"{shown.rstrip('/')}/{os.path.relpath(fw, real)}"
+    else:
+        path = fw
+    return f"python3 {path.rstrip('/')}/scripts/psai.py"
+
+
 def context(root, shown=None):
     """The always-on nudge every harness plugin injects: global.md, owner.md, the routing line, and each workflow's
     name and `when`. Deterministic: same files, same text. The routing logic itself is the request-router skill."""
     shown = shown or root
-    parts = [open(os.path.join(root, "instructions", "global.md")).read().strip()]
-    owner = os.path.join(root, "instructions", "owner.md")
+    parts = [open(os.path.join(res.home(root).framework, "instructions", "global.md")).read().strip()]
+    owner = os.path.join(res.home(root).overlay_path, "instructions", "owner.md")
     if os.path.exists(owner):
         parts.append("## Owner rules\n" + open(owner).read().strip())
-    lines = [f"For every request, run the request-router skill first (`{shown}/skills/request-router/SKILL.md`). "
-             "Skip it only for a quick question or a one-off reply.", "", "Workflows:"]
+    lines = ["For every request, run the request-router skill first. Skip it only for a quick question or a "
+             f"one-off reply. Run `psai` as `{psai_cmd(root, shown)}` if it isn't on PATH.", "", "Workflows:"]
     wfs = workflow_files(root)
     for path in wfs:
         wf = load(path) or {}
@@ -283,8 +333,8 @@ def context(root, shown=None):
     except Exception:  # noqa: BLE001 - the nudge must never fail on a broken skills.yaml
         n = 0
     if n:
-        lines.append(f"{n} skill(s) in your tool folders aren't managed by psai (`python3 {shown}/scripts/harness.py "
-                     "skills --unmanaged`); customize-harness can adopt them.")
+        lines.append(f"{n} skill(s) in your tool folders aren't managed by psai (`psai skills --unmanaged`); "
+                     "customize-harness can adopt them.")
     parts.append("\n".join(lines))
     return "\n\n".join(parts) + "\n"
 
@@ -293,15 +343,15 @@ def role_context(root, shown=None, role=None):
     """The nudge for a role agent (or any subagent) inside a running workflow: the same rules, but no routing, so a
     role never starts a workflow of its own."""
     shown = shown or root
-    parts = [open(os.path.join(root, "instructions", "global.md")).read().strip()]
-    owner = os.path.join(root, "instructions", "owner.md")
+    parts = [open(os.path.join(res.home(root).framework, "instructions", "global.md")).read().strip()]
+    owner = os.path.join(res.home(root).overlay_path, "instructions", "owner.md")
     if os.path.exists(owner):
         parts.append("## Owner rules\n" + open(owner).read().strip())
     who = f"the {role} inside a running psai workflow" if role else \
         "a subagent: a role inside a running psai workflow, or a helper another agent started"
     parts.append(f"## Role mode\nYou are {who}. Do not run request-router or work, and do "
-                 "not start workflows. Do your brief and return. You may still use capture-knowledge "
-                 f"(`{shown}/skills/capture-knowledge/SKILL.md`) and the skills your brief lists.")
+                 "not start workflows. Do your brief and return. You may still use the capture-knowledge skill and "
+                 f"the skills your brief lists. Run `psai` as `{psai_cmd(root, shown)}` if it isn't on PATH.")
     return "\n\n".join(parts) + "\n"
 
 

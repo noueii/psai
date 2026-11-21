@@ -5,19 +5,20 @@ description: "Records a fact, a decision or a proposed rule as a dated, sourced 
 
 # capture-knowledge
 
-`H` is the harness root (`$PSAI_HOME` or `~/.psai`). Knowledge is descriptive (what's true, what was decided and why). Rules are prescriptive and live in guides, roles and steps, which change only through `customize-harness`.
+Knowledge is descriptive (what's true, what was decided and why). Rules are prescriptive and live in guides, roles and steps, which change only through `customize-harness`.
 
 ## Where
-- A finding for one role goes to `H/knowledge/roles/<role>/inbox.md`.
-- Everything else goes to `H/knowledge/inbox.md`.
+`psai` prints the inbox to append to (run it as the nudge says if it isn't on PATH):
+- a finding for one role: `psai resolve --write knowledge roles/<role>/inbox.md` (from a workflow of another stack, `<stack>:roles/<role>/inbox.md`);
+- everything else: `psai resolve --write knowledge inbox.md`.
 
-First check `H/knowledge/INDEX.md`; if the finding is already recorded, don't add it again. Skip:
+First check the knowledge index (`psai resolve --all knowledge INDEX.md`); if the finding is already recorded, don't add it again. Skip:
 - what the repo itself records (code, git history, its own docs);
 - secrets;
 - company content (that belongs in the company's repos).
 
 ## Entry
-Append to the end of the inbox, creating it (and `knowledge/INDEX.md`) with a one-line title if it doesn't exist yet:
+Append to the end of the inbox, creating it (and its folder's `INDEX.md`) with a one-line title if it doesn't exist yet:
 
 ```md
 ## YYYY-MM-DD: <short title>
@@ -30,7 +31,7 @@ Append to the end of the inbox, creating it (and `knowledge/INDEX.md`) with a on
 Use `proposed-rule` for anything you think should change future work. It stays a proposal until the owner accepts it.
 
 ## Promote (at the retro, by PR only)
-Inbox entries stay as local, uncommitted edits; nothing goes to GitHub while a task runs. The retro skill, at the end of the task, promotes stable entries in the stage worktree (`psai sync stage`), never in the live `H`:
+Inbox entries stay as local, uncommitted edits; nothing goes to GitHub while a task runs. The retro skill, at the end of the task, promotes stable entries in the stage worktree (`psai sync stage`), never in the live setup:
 - a fact goes to `knowledge/facts/<topic>.md`;
 - a decision goes to `knowledge/decisions/YYYY-MM-DD-<slug>.md`;
 - an accepted proposed rule goes into a guide, role or step, using `customize-harness`.

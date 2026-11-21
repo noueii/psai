@@ -23,6 +23,8 @@ expect keys (all optional):
   router_invoked          the agent used the request-router skill (Skill tool or reading its SKILL.md)
   no_workflow             no workflow node was entered
   answer_mentions [words] the final message mentions each (case-insensitive)
+  roles_no_route          role agents (subagents) never invoked request-router or work, nor ran trace.sh, and the
+                          trace holds one workflow run (Claude Code: needs the subagents' tool calls)
 Unexpected escalations or questions (no scripted answer) always fail.
 """
 import os
@@ -129,6 +131,15 @@ def grade(expect, log, ctx):
     if expect.get("router_invoked"):
         t = log.get("text") or ""
         add("request-router invoked", re.search(r'"skill": "[^"]*request-router"|request-router/SKILL\.md|skill://request-router', t), "")
+    if expect.get("roles_no_route"):
+        calls = log.get("sub_calls")
+        if calls is None:
+            add("role agents did not route", True, "skipped: this tool's driver doesn't record subagent tool calls")
+        else:
+            bad = [c for c in calls if re.search(r'"skill": "[^"]*\b(request-router|work)"|(request-router|/work)/SKILL\.md|work/trace\.sh', c)]
+            runs = sum(t.startswith("workflow ") for t in phase)
+            add("role agents did not route", calls and not bad and runs == 1,
+                f"{len(calls)} subagent tool calls, {len(bad)} routing: {'; '.join(bad)[:300]}; workflow runs in trace: {runs}")
     if expect.get("no_workflow"):
         add("no workflow ran", not path, " -> ".join(path))
     for m in expect.get("answer_mentions", []):

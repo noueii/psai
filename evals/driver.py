@@ -120,7 +120,7 @@ class Claude:
              "--setting-sources", "project", "--no-session-persistence", "--strict-mcp-config",
              "--permission-mode", "bypassPermissions", "--add-dir", h, "--model", model, "--max-budget-usd", str(budget)],
             cwd=cwd, env=env, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
-        self.texts, self.cost = [], 0.0
+        self.texts, self.sub_calls, self.cost = [], [], 0.0
         self.raw = open(os.path.join(os.path.dirname(h), "stream.jsonl"), "a")
 
     def turn(self, message):
@@ -132,16 +132,23 @@ class Claude:
                 d = json.loads(line)
             except json.JSONDecodeError:
                 continue
-            if d.get("type") == "assistant" and not d.get("parent_tool_use_id"):
-                for c in d["message"].get("content", []):
-                    if c.get("type") == "text":
-                        self.texts.append(c["text"])
-                    elif c.get("type") == "tool_use":  # agents often print [harness] lines with echo
-                        self.texts.append(json.dumps(c.get("input", {})).replace("\\n", "\n"))
+            self._collect(d)
             if d.get("type") == "result":
                 self.cost = d.get("total_cost_usd") or self.cost
                 return self._drain(d.get("result") or "")
         return None
+
+    def _collect(self, d):
+        if d.get("type") != "assistant":
+            return
+        for c in d["message"].get("content", []):
+            if d.get("parent_tool_use_id"):  # a subagent (role agent): keep its tool calls for roles_no_route
+                if c.get("type") == "tool_use":
+                    self.sub_calls.append(json.dumps({"name": c.get("name"), "input": c.get("input", {})}))
+            elif c.get("type") == "text":
+                self.texts.append(c["text"])
+            elif c.get("type") == "tool_use":  # agents often print [harness] lines with echo
+                self.texts.append(json.dumps(c.get("input", {})).replace("\\n", "\n"))
 
     def _drain(self, result, idle=120):
         """If background agents are still running, the session continues on its own: keep reading until idle."""
@@ -161,12 +168,7 @@ class Claude:
                 d = json.loads(line)
             except json.JSONDecodeError:
                 continue
-            if d.get("type") == "assistant" and not d.get("parent_tool_use_id"):
-                for c in d["message"].get("content", []):
-                    if c.get("type") == "text":
-                        self.texts.append(c["text"])
-                    elif c.get("type") == "tool_use":  # agents often print [harness] lines with echo
-                        self.texts.append(json.dumps(c.get("input", {})).replace("\\n", "\n"))
+            self._collect(d)
             if d.get("type") == "result":
                 self.cost = d.get("total_cost_usd") or self.cost
                 result = d.get("result") or ""
@@ -279,6 +281,7 @@ def run_phase(tool, phase, h, w, base, model, budget):
         agent.close()
     text = "\n".join(agent.texts)
     log.update(seconds=round(time.time() - t0), cost=round(agent.cost, 4), final=final, text=text,
+               sub_calls=getattr(agent, "sub_calls", None),
                path=re.findall(r"\[harness\] node: ([A-Za-z0-9_-]+)", text), cwd=cwd)
     return log
 

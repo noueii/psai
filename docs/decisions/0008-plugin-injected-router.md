@@ -14,3 +14,4 @@
   v1's import lines and marked blocks are removed on upgrade.
 - Why: a skill description triggers unreliably, and pasted copies go stale. One live injection path per tool keeps every session current.
 - Source: the owner's v2 review; `scripts/test-plugins.sh`.
+- Note (2026-11-21): role agents got the routing nudge too, so a role could start a workflow inside a workflow. Now a subagent gets a role-mode nudge without routing, and `work` opens each role's prompt with the same rule. Detection: Claude Code 2.1.328's SubagentStart hook (a live probe showed its `additionalContext` reaching the subagent), omp 18.11's `ctx.agent.kind` and opencode 1.18's session `parentID` (from their plugin types, tested with stand-ins), and `PSAI_ROLE` for `pi -p` roles (tested with the real binaries).

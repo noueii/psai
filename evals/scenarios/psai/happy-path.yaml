@@ -15,3 +15,4 @@ expect:
   checks: python3 -m unittest -q
   final_sections: [Summary, Evidence, Open questions]
   no_push: true
+  roles_no_route: true

@@ -263,10 +263,32 @@ def context(root, shown=None):
     return "\n\n".join(parts) + "\n"
 
 
-if __name__ == "__main__" and len(sys.argv) > 1 and sys.argv[1] == "context":
-    # harness.py context [root] [shown-root]: print the injected text
+def role_context(root, shown=None, role=None):
+    """The nudge for a role agent (or any subagent) inside a running workflow: the same rules, but no routing, so a
+    role never starts a workflow of its own."""
+    shown = shown or root
+    parts = [open(os.path.join(root, "instructions", "global.md")).read().strip()]
+    owner = os.path.join(root, "instructions", "owner.md")
+    if os.path.exists(owner):
+        parts.append("## Owner rules\n" + open(owner).read().strip())
+    who = f"the {role} inside a running psai workflow" if role else \
+        "a subagent: a role inside a running psai workflow, or a helper another agent started"
+    parts.append(f"## Role mode\nYou are {who}. Do not run request-router or work, and do "
+                 "not start workflows. Do your brief and return. You may still use capture-knowledge "
+                 f"(`{shown}/skills/capture-knowledge/SKILL.md`) and the skills your brief lists.")
+    return "\n\n".join(parts) + "\n"
+
+
+if __name__ == "__main__" and len(sys.argv) > 1 and sys.argv[1] in ("context", "role-context"):
+    # harness.py context|role-context [root] [shown-root]: print the injected text. With $PSAI_ROLE set (work sets
+    # it for the role agents it spawns), or as role-context (a plugin detected a subagent), it is the role-mode text.
     r = sys.argv[2] if len(sys.argv) > 2 else os.environ.get("PSAI_HOME") or os.path.expanduser("~/.psai")
-    sys.stdout.write(context(r, sys.argv[3] if len(sys.argv) > 3 else None))
+    shown = sys.argv[3] if len(sys.argv) > 3 else None
+    role = os.environ.get("PSAI_ROLE", "").strip()
+    if role or sys.argv[1] == "role-context":
+        sys.stdout.write(role_context(r, shown, role or None))
+    else:
+        sys.stdout.write(context(r, shown))
     sys.exit(0)
 
 if __name__ == "__main__":

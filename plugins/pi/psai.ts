@@ -1,5 +1,6 @@
 // pi extension: append the live psai context to the system prompt before every agent run.
 // Installed as ~/.pi/agent/extensions/psai.ts (a link). Reads $PSAI_HOME or ~/.psai each time.
+// pi has no subagents: work spawns a role as `PSAI_ROLE=<role> pi -p ...`, and harness.py then prints the role-mode text.
 import { execFileSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";

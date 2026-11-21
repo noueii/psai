@@ -70,6 +70,7 @@ for w in "$gen"/workflows/*.yaml; do
   n="$(basename "$w" .yaml)"; check "nudge lists workflow $n" bash -c "python3 '$ROOT/scripts/harness.py' context '$gen' | grep -q '^- $n: '"
 done
 check "nudge names the router skill" bash -c "python3 '$ROOT/scripts/harness.py' context '$ROOT' | grep -q 'request-router'"
+check "PSAI_ROLE gives the role-mode nudge, without routing" bash -c "o=\"\$(PSAI_ROLE=doer python3 '$ROOT/scripts/harness.py' context '$gen')\"; grep -q 'You are the doer inside a running psai workflow' <<< \"\$o\" && ! grep -q 'run the request-router skill first' <<< \"\$o\" && ! grep -q '^- example: ' <<< \"\$o\""
 echo "  info nudge size: $(python3 "$ROOT/scripts/harness.py" context "$ROOT" '~/.psai' | wc -w) words vanilla, $(python3 "$ROOT/scripts/harness.py" context "$gen" '~/.psai' | wc -w) with the test workflow"
 if [ "$UPSTREAM" = 1 ]; then
   shipped="$(cd "$ROOT" && git ls-files -co --exclude-standard | python3 -c "

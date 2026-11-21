@@ -41,11 +41,11 @@ Special nodes:
 4. Otherwise, commit the role's work: `git add -A && git commit -m "<node>: <summary>"`.
 
 ## 4. Delegation per tool
-Every role agent starts with a FRESH context and runs in the foreground: wait for its result before choosing the edge. Never end your turn while a role agent runs; only human nodes and escalations end a turn before `ready`. Its prompt is: "You are the <r>. Read <brief path> and follow it." followed by the inputs listed in section 2.
+Every role agent starts with a FRESH context and runs in the foreground: wait for its result before choosing the edge. Never end your turn while a role agent runs; only human nodes and escalations end a turn before `ready`. Its prompt starts: "You are the <r> inside a running workflow. Do not run request-router or work, and do not start workflows. Do your brief and return. Read <brief path> and follow it." Then come the inputs listed in section 2. A role may still use capture-knowledge and the skills its brief lists.
 - **Claude Code:** Agent (Task) tool, `subagent_type: general-purpose`, not in the background.
 - **opencode:** `task` tool, `subagent_type: general`.
 - **omp:** `task` tool, agent `task`.
-- **pi:** no subagents. Spawn `pi -p --no-session "<prompt>"` through bash. If that fails, play the role yourself, sequentially: re-read the brief and work only from the spec.
+- **pi:** no subagents. Spawn `PSAI_ROLE=<r> pi -p --no-session "<prompt>"` through bash (`PSAI_ROLE` switches its psai nudge to role mode). If that fails, play the role yourself, sequentially: re-read the brief and work only from the spec.
 
 ## Never
 Never end a turn with a plain question: ask only with the fixed block. Never merge, deploy, push, or post to people unless a step says so and the human approved it. Escalate only by escalation.md and the owner's rules in `H/instructions/owner.md`, if it exists.

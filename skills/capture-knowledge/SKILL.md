@@ -1,37 +1,38 @@
 ---
 name: capture-knowledge
-description: "Records a preference, rule or decision as a dated inbox entry in ~/.harness/knowledge, and promotes inbox entries into topic files through a PR. Use when the owner states or corrects a preference, when you make a decision without escalating, when a reviewer or human comment reveals a rule, or when an inbox has grown enough to promote."
+description: "Records a fact, a decision or a proposed rule as a dated, sourced entry in a knowledge inbox, and promotes inbox entries by PR. Use when you learn something true about a repo or tool, when you decide something without escalating, when the owner states or corrects a preference, or when you think a rule should change future work."
 ---
 
-# Capture knowledge
+# capture-knowledge
 
-Knowledge lives in `~/.harness/knowledge/`, plain Markdown:
-- shared: `preferences/`, `decisions/`, `inbox.md`;
-- per role: `roles/<engineer|qa|reviewer>/INDEX.md` and `inbox.md`.
-
-## When
-- The owner states, repeats or corrects a preference.
-- You decide something instead of escalating (also log it in the PR description).
-- A review comment or failure reveals a rule worth keeping.
-
-Skip one-off facts, anything the repo already records (code, git history, its own docs), secrets, and company-specific content: that belongs in the company repo's docs.
+`H` is the harness root (`$HARNESS_HOME` or `~/.harness`). Knowledge is descriptive (what's true, what was decided and why). Rules are prescriptive and live in guides, roles and steps, which change only through `customize-harness`.
 
 ## Where
-Role-specific lessons go to that role's `inbox.md`; everything else to `knowledge/inbox.md`. Check `INDEX.md` and the topic files first; if it's already there, don't add it again.
+- A finding for one role goes to `H/knowledge/roles/<role>/inbox.md`.
+- Everything else goes to `H/knowledge/inbox.md`.
 
-## Entry format
+First check `H/knowledge/INDEX.md`; if the finding is already recorded, don't add it again. Skip:
+- what the repo itself records (code, git history, its own docs);
+- secrets;
+- company content (that belongs in the company's repos).
+
+## Entry
 Append to the end of the inbox:
 
 ```md
 ## YYYY-MM-DD: <short title>
-- Source: <who or what: owner in chat, PR #12 review, repo path, task name>
-- What: <the preference or decision, one or two lines>
+- Tag: fact | decision | proposed-rule
+- Source: <who or what: the owner in chat, PR #12 review, a repo path, the task>
+- What: <one or two lines>
 - Why: <the reason given, or "not stated">
 ```
 
-## Promote
-Inbox entries stay as uncommitted local edits in `~/.harness`; only topic files go through git. When entries are clearly stable (repeated, or confirmed by the owner), promote them by PR, never by switching branches in `~/.harness` (live sessions read it):
-1. `git -C ~/.harness fetch && git -C ~/.harness worktree add "$(mktemp -d)/k" -b knowledge/<date>-<slug> origin/main`, then work in that worktree.
-2. Write each entry into the right topic file (`preferences/<topic>.md`, `decisions/<date>-<slug>.md`, or the role's folder) and update the matching `INDEX.md`. Don't touch the inbox files there.
-3. Commit, push and open a PR against main titled `knowledge: <summary>`. The owner merges it; never merge it yourself.
-4. Delete the promoted entries from the inbox in `~/.harness`, then remove the worktree.
+Use `proposed-rule` for anything you think should change future work. It stays a proposal until the owner accepts it.
+
+## Promote (by PR only)
+Inbox entries stay as local, uncommitted edits. Promote stable ones in a separate worktree off `origin/main`; never switch branches in the live `H`:
+- a fact goes to `knowledge/facts/<topic>.md`;
+- a decision goes to `knowledge/decisions/YYYY-MM-DD-<slug>.md`;
+- an accepted proposed rule goes into a guide, role or step, using `customize-harness`.
+
+Update `knowledge/INDEX.md`, commit, push, and open a PR titled `knowledge: <summary>`. The owner merges it. Afterwards, delete the promoted entries from the local inbox.

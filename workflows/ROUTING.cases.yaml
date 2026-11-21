@@ -1,0 +1,3 @@
+- name: vanilla escalates every task
+  answers: []
+  escalate: true

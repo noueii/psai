@@ -1,0 +1,17 @@
+name: vanilla-no-workflow
+level: L3
+about: A task arrives on the vanilla harness. With no workflows, it must escalate and offer customize-harness, and change nothing.
+content: null                 # vanilla, no test content
+fixture: textkit
+task: Add a `reverse(text)` helper to textkit.
+owner:
+  escalations:
+    - match: "."
+      answer: Not now, thanks. Stop here.
+  max_turns: 3
+expect:
+  escalations: { min: 1, max: 1 }
+  escalation_nodes: [route]
+  mentions: [customize-harness]
+  unchanged: true
+  no_push: true

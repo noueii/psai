@@ -1,0 +1,79 @@
+# The coding workflow: a state machine. Edges are checked in order; the first match wins;
+# the last edge is the default.
+name: coding
+when: A task that changes code, docs or config in a repo, with a goal you can state.
+start: clarify
+defaults:
+  max: 2                # automatic loops back: two tries on the same problem
+  on_exhaust: escalate
+
+nodes:
+  clarify:              # also sizes the task
+    step: steps/clarify.md
+    next:
+      - { when: blocking question, to: escalate }
+      - { when: big, to: plan }
+      - { when: small, to: implement }
+
+  plan:
+    step: steps/plan.md
+    next: [{ to: plan_review }]
+
+  plan_review:
+    step: steps/plan.md
+    human: true         # loops you drive have no limit
+    next:
+      - { when: changes requested, to: plan }
+      - { when: accepted, to: implement }
+
+  implement:
+    step: steps/implement.md
+    role: engineer
+    next:
+      - { when: checks exist and the spec is unchanged, to: verify }
+      - { when: no checks yet or the spec changed, to: verify_prep }
+
+  verify_prep:
+    step: steps/verify-prep.md
+    role: qa
+    next: [{ to: verify }]
+
+  verify:
+    step: steps/verify.md
+    next:
+      - { when: fail, to: implement, max: 2 }
+      - { when: pass, to: ai_review }
+
+  ai_review:
+    step: steps/review.md
+    role: reviewer
+    fan_out: [correctness, spec fit, simplicity]
+    next:
+      - { when: small fix, to: verify }
+      - { when: rework, to: implement }
+      - { when: spec gap, to: escalate }
+      - { when: clean, to: human_review }
+
+  human_review:
+    step: steps/review.md
+    human: true
+    next:
+      - { when: small fix, to: verify }
+      - { when: rework, to: implement }
+      - { when: approved, to: sanitize }
+
+  sanitize:
+    step: steps/sanitize.md
+    next:
+      - { when: a check broke, to: verify }
+      - { when: clean, to: handover }
+
+  handover:
+    step: steps/handover.md
+    next: [{ to: ready }]
+
+  escalate:
+    return: caller      # the answer resumes the node that asked
+
+  ready:
+    terminal: true      # a human merges

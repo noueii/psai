@@ -1,0 +1,4 @@
+# Picks a workflow for each task. A node is { ask, answers: [{ if, then }] }, { workflow }, or { escalate }.
+# Vanilla: no workflows yet, so every task escalates and offers customize-harness.
+tree:
+  escalate: No workflows yet. Offer to set one up with customize-harness.

@@ -1,0 +1,21 @@
+name: ambiguous
+level: L3
+about: A vague task whose answer changes the outcome. Escalation at clarify is EXPECTED; the run then finishes.
+content: harness-content
+fixture: textkit
+task: Make slugify handle separators better.
+owner:
+  escalations:
+    - match: "separat|underscore|dash|hyphen|slug|which|what|mean"
+      answer: >-
+        Treat spaces, underscores and runs of "-" as one "-" separator, and strip leading and trailing "-".
+        Leave other characters as they are.
+  review: Approved.
+  max_turns: 8
+expect:
+  escalations: { min: 1, max: 2 }
+  escalation_nodes: [clarify]
+  path_includes: [clarify, implement, verify, handover, ready]
+  checks: python3 -m unittest -q
+  handover: [What changed, How it was verified, Decisions made without you, "Open, needs you"]
+  no_push: true

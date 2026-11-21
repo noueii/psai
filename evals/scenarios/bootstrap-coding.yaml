@@ -1,0 +1,87 @@
+name: bootstrap-coding
+level: L4
+about: >-
+  From the vanilla harness, the fake owner bootstraps their coding workflow with customize-harness, using the
+  owner's real choices. The new workflow must be filed per LAYOUT, pass check.sh, and then run a fixture task.
+  A passing run's harness content (saved in evals/results/) is the owner's own coding setup, ready to adopt.
+content: null
+fixture: textkit
+phases:
+  - name: bootstrap
+    cwd: harness
+    task: >-
+      I want to set up this harness for my coding work. Use the customize-harness skill to bootstrap my first
+      workflow with me. Call the workflow "coding".
+    owner:
+      max_turns: 25
+      answers:   # first match wins; the owner's real choices
+        - match: "accept|look good|looks right|proceed|shall i|ready to build|go ahead|approve|confirm|proposal|propose"
+          answer: Accepted. Build it, commit it on a customize/ branch, no PR and no push.
+        - match: "scope|everywhere|this repo|this workflow only"
+          answer: Everywhere.
+        - match: "handover|report|hand over|finish|summary at the end"
+          answer: >-
+            End every task with a handover with exactly these sections: What changed / How it was verified /
+            Decisions made without you / Open, needs you.
+        - match: "escalat|autonom|decide|when.*ask|interrupt|permission"
+          answer: >-
+            Fully autonomous otherwise. Escalate only when: a requirement is unclear AND the answer changes the
+            outcome, and code, docs and knowledge can't settle it; the action is irreversible or visible to others
+            (merge, deploy, posting to people, deleting what isn't yours); it goes against a stated rule or
+            preference, or two rules conflict; you're still stuck after two real attempts; the scope grows well
+            beyond what was asked. Otherwise decide, and log the decision and its reason in the handover and the
+            knowledge inbox. Never merge.
+        - match: "size|small|big|plan"
+          answer: >-
+            Size every task. Small (clear, low-risk, contained): one shot, no plan. Big (multi-repo, API/schema/data
+            changes, unclear or risky): write a plan and iterate it with me until I accept it.
+        - match: "role|who|engineer|qa\\b|reviewer|lens|may change|touch"
+          answer: >-
+            Three roles, each a fresh agent: engineer implements (may change anything); qa writes tests and checks
+            from the spec, never from the engineer's notes (may change tests only); reviewer reviews through lenses
+            correctness, spec fit and simplicity (changes nothing).
+        - match: "check|test|verif|limit|retry|max"
+          answer: >-
+            QA's checks plus the repo's tests prove it. Failures go back to the engineer, at most 2 tries, then
+            escalate. AI review small fixes go back to verify, rework to the engineer. My own review loops have no
+            limit. Re-run QA only when the spec changed or no checks exist yet.
+        - match: "step|loop|flow|stage|process|kind|type|what.*task"
+          answer: >-
+            Coding tasks in my repos. The loop: clarify -> size (small = one shot, big = plan iterated with me) ->
+            engineer -> QA from the spec -> verify loop -> AI review with lenses -> my review -> sanitize -> handover.
+        - match: "pattern|option|would you like|do you want|should i"
+          answer: Yes, where it matches what I described. Otherwise your call.
+      default: >-
+        Here is how I work: coding tasks; clarify -> size (small one shot, big = plan I accept) -> engineer -> QA
+        from the spec (tests only) -> verify (max 2 tries, then escalate) -> AI review with lenses correctness, spec
+        fit, simplicity (reviewer changes nothing) -> my review -> sanitize -> handover (What changed / How it was
+        verified / Decisions made without you / Open, needs you). Fully autonomous otherwise; escalate only by the
+        policy I gave. Decide anything else yourself.
+    expect:
+      files: [workflows/coding.yaml, workflows/coding.cases.yaml, roles/engineer.md, roles/qa.md, roles/reviewer.md,
+              knowledge/roles/engineer/INDEX.md, knowledge/roles/qa/INDEX.md, knowledge/roles/reviewer/INDEX.md,
+              templates/handover.md]
+      new_files_in: [evals/scenarios]
+      may_change: { engineer: anything, qa: tests, reviewer: nothing }
+      routes_to: [coding]
+      global_rules_mention: [irreversible]
+      commands: ["scripts/check.sh --quick", "python3 scripts/simulate.py ."]
+      branch_prefix: customize/
+      escalations: { max: 0 }
+      no_push: true
+  - name: run-fixture-task
+    cwd: fixture
+    task: >-
+      Add `truncate(text, n)` to textkit/text.py and export it from textkit: return `text` unchanged when it has at
+      most n characters, otherwise the first n-1 characters followed by "…" (so the result has length n). n < 1
+      raises ValueError.
+    owner:
+      review: Approved.
+      max_turns: 6
+    expect:
+      path_includes: [implement, verify, ready]
+      escalations: { max: 0 }
+      roles_checked: [engineer, qa, reviewer]
+      checks: python3 -m unittest -q
+      handover: [What changed, How it was verified, Decisions made without you, "Open, needs you"]
+      no_push: true

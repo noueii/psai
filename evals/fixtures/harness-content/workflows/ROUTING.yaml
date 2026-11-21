@@ -1,0 +1,8 @@
+# Picks a workflow for each task. A node is { ask, answers: [{ if, then }] }, { workflow }, or { escalate }.
+tree:
+  ask: Does the task change code, docs or config in a repo?
+  answers:
+    - if: "yes"
+      then: { workflow: coding }
+    - if: "no"
+      then: { escalate: No workflow fits this task. }

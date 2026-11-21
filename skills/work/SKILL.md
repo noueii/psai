@@ -13,7 +13,7 @@ description: "The harness engine: routes any task through workflows/ROUTING.yaml
 3. If you reach an `escalate:` leaf, no answer fits, or you're unsure, escalate (kind `escalation`, node `route`). When there are no workflows at all, offer to set one up with the `customize-harness` skill. Never improvise a workflow.
 
 ## 2. Run the workflow
-Load `H/workflows/<name>.yaml` and begin at `start`. At each node, first print the line `[harness] node: <id>`, then:
+Load `H/workflows/<name>.yaml` and begin at `start`. On entering EVERY node, the first one and `ready` included, first run `H/skills/work/trace.sh <id>`. It records the run's path. Then:
 - Read its `step:` file and every file in that step's `read:` list.
 - **`role: <r>`:** delegate (section 4) to a FRESH agent. Give it:
   - its brief `H/roles/<r>.md` and the files in the brief's `read:` list;
@@ -22,20 +22,19 @@ Load `H/workflows/<name>.yaml` and begin at `start`. At each node, first print t
   - the spec;
   - the base commit.
 
-  With `fan_out`, start one fresh agent per lens. Then run section 3.
+  With `fan_out`, start one fresh agent per lens, never merging lenses. Run section 3 after EVERY role agent, fan-out agents included.
 - **`human: true`:** ask the human with the fixed block, kind `review` (escalation.md), and wait.
 - **`skill: <s>`:** use that skill for the step.
-- **Otherwise:** do the step yourself.
+- **No `role:`** (e.g. verify, sanitize, handover): do the step yourself. Never delegate it, and never skip it.
 
 Then choose the edge:
 1. Check `next` in order. The first edge whose `when` holds wins; the last edge is the default.
-2. Print `[harness] edge: <when or default> -> <to>`.
-3. **Limits:** an edge's `max` (or `defaults.max` for an automatic edge back to an earlier node) caps how often you take it for the same problem. If taking it again would exceed the cap, go to `defaults.on_exhaust` instead.
+2. **Limits:** an edge's `max` (or `defaults.max` for an automatic edge back to an earlier node) caps how often you take it for the same problem. If taking it again would exceed the cap, go to `defaults.on_exhaust` instead.
 
 Special nodes:
 - **`escalate`:** emit the block (kind `escalation`, with the asking node), wait for the answer, then resume the node that asked (`return: caller`).
 - **`handoff: <wf>`:** continue in that workflow at its start, carrying the spec.
-- **`terminal`:** stop. The last step before it writes the handover.
+- **`terminal`:** run `trace.sh` for it, then end with the handover written by the step before it as your final message.
 
 ## 3. Role boundaries
 1. Before each role, commit pending work so the tree is clean. Record `base=$(git rev-parse HEAD)`.
@@ -44,8 +43,8 @@ Special nodes:
 4. Otherwise, commit the role's work: `git add -A && git commit -m "<node>: <summary>"`.
 
 ## 4. Delegation per tool
-Every role agent starts with a FRESH context. Its prompt is: "You are the <r>. Read <brief path> and follow it." followed by the inputs listed in section 2.
-- **Claude Code:** Agent (Task) tool, `subagent_type: general-purpose`.
+Every role agent starts with a FRESH context and runs in the foreground: wait for its result before choosing the edge. Never end your turn while a role agent runs; only human nodes and escalations end a turn before `ready`. Its prompt is: "You are the <r>. Read <brief path> and follow it." followed by the inputs listed in section 2.
+- **Claude Code:** Agent (Task) tool, `subagent_type: general-purpose`, not in the background.
 - **opencode:** `task` tool, `subagent_type: general`.
 - **omp:** `task` tool, agent `task`.
 - **pi:** no subagents. Spawn `pi -p --no-session "<prompt>"` through bash. If that fails, play the role yourself, sequentially: re-read the brief and work only from the spec.

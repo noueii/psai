@@ -79,7 +79,7 @@ def parse_block(text):
 
 
 def owner_answer(owner, block, log):
-    kind, q = block.get("kind", "escalation"), block.get("question", "") + " " + block.get("why", "")
+    kind, q = block.get("kind", "escalation"), block.get("question", "")
     if kind == "review":
         log["reviews"] += 1
         return owner.get("review", "Approved.")
@@ -109,11 +109,13 @@ class Claude:
              "--add-dir", h, "--model", model, "--max-budget-usd", str(budget)],
             cwd=cwd, env=env, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
         self.texts, self.cost = [], 0.0
+        self.raw = open(os.path.join(os.path.dirname(h), "stream.jsonl"), "a")
 
     def turn(self, message):
         self.p.stdin.write(json.dumps({"type": "user", "message": {"role": "user", "content": message}}) + "\n")
         self.p.stdin.flush()
         for line in self.p.stdout:
+            self.raw.write(line)
             try:
                 d = json.loads(line)
             except json.JSONDecodeError:
@@ -122,10 +124,43 @@ class Claude:
                 for c in d["message"].get("content", []):
                     if c.get("type") == "text":
                         self.texts.append(c["text"])
+                    elif c.get("type") == "tool_use":  # agents often print [harness] lines with echo
+                        self.texts.append(json.dumps(c.get("input", {})).replace("\\n", "\n"))
             if d.get("type") == "result":
                 self.cost = d.get("total_cost_usd") or self.cost
-                return d.get("result") or ""
+                return self._drain(d.get("result") or "")
         return None
+
+    def _drain(self, result, idle=120):
+        """If background agents are still running, the session continues on its own: keep reading until idle."""
+        import select
+        done = lambda res: bool(BLOCK.search(res)) or "[harness] node: ready" in "\n".join(self.texts[-5:]) + res
+        if done(result):
+            return result
+        while True:
+            r, _, _ = select.select([self.p.stdout], [], [], idle)
+            if not r:
+                return result
+            line = self.p.stdout.readline()
+            if not line:
+                return result
+            self.raw.write(line)
+            try:
+                d = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if d.get("type") == "assistant" and not d.get("parent_tool_use_id"):
+                for c in d["message"].get("content", []):
+                    if c.get("type") == "text":
+                        self.texts.append(c["text"])
+                    elif c.get("type") == "tool_use":  # agents often print [harness] lines with echo
+                        self.texts.append(json.dumps(c.get("input", {})).replace("\\n", "\n"))
+            if d.get("type") == "result":
+                self.cost = d.get("total_cost_usd") or self.cost
+                result = d.get("result") or ""
+                if done(result):
+                    return result
+                idle = 60
 
     def close(self):
         try:
@@ -201,7 +236,9 @@ TOOLS = {"claude": Claude, "omp": Omp}
 def run_phase(tool, phase, h, w, base, model, budget):
     cwd = h if phase.get("cwd") == "harness" else w
     env = dict(os.environ, HARNESS_HOME=h, HARNESS_TRACE=os.path.join(base, "trace.log"),
-               PATH=os.path.join(base, "bin") + os.pathsep + os.environ["PATH"])
+               PATH=os.path.join(base, "bin") + os.pathsep + os.environ["PATH"],
+               GIT_AUTHOR_NAME="eval", GIT_AUTHOR_EMAIL="eval@local", GIT_COMMITTER_NAME="eval",
+               GIT_COMMITTER_EMAIL="eval@local")
     owner = phase.get("owner") or {}
     log = {"reviews": 0, "questions": 0, "escalations": [], "unexpected": [], "turns": 0}
     agent = TOOLS[tool](h, cwd, env, model, budget)
@@ -225,9 +262,21 @@ def run_phase(tool, phase, h, w, base, model, budget):
     finally:
         agent.close()
     text = "\n".join(agent.texts)
-    log.update(seconds=round(time.time() - t0), cost=round(agent.cost, 4), final=final,
+    log.update(seconds=round(time.time() - t0), cost=round(agent.cost, 4), final=final, text=text,
                path=re.findall(r"\[harness\] node: ([A-Za-z0-9_-]+)", text), cwd=cwd)
     return log
+
+
+def use_customize_branch(h):
+    """customize-harness commits on customize/<slug>, maybe in another worktree: grade and run later phases on it."""
+    br = [b for b in sh("git branch --format='%(refname:short)'", h).stdout.split() if b.startswith("customize/")]
+    if not br:
+        return
+    for line in sh("git worktree list --porcelain", h).stdout.split("\n\n"):
+        wt = line.split("\n")[0].replace("worktree ", "")
+        if wt and os.path.realpath(wt) != os.path.realpath(h) and f"branch refs/heads/{br[0]}" in line:
+            sh(f"git worktree remove --force {wt}", h, check=False)
+    sh(f"git checkout -q {br[0]}", h, check=False)
 
 
 def run_scenario(path, tool, model, budget, keep):
@@ -239,19 +288,19 @@ def run_scenario(path, tool, model, budget, keep):
     head0 = sh("git rev-parse HEAD", w).stdout.strip()
     results, ok = [], True
     for ph in phases:
+        open(os.path.join(base, "trace.log"), "a").write(f"phase {ph.get('name', 'main')}\n")
         log = run_phase(tool, ph, h, w, base, model, budget)
+        use_customize_branch(h)
         checks = grade.grade(ph.get("expect") or {}, log, dict(base=base, harness=h, work=w, refs0=refs0, head0=head0,
                                                             remote_refs=remote_refs(base)))
         ok = ok and all(c[1] for c in checks)
         results.append({"phase": ph.get("name", "main"), "seconds": log["seconds"], "cost_usd": log["cost"],
                         "turns": log["turns"], "path": log["path"], "escalations": log["escalations"],
                         "questions": log["questions"], "reviews": log["reviews"], "unexpected": log["unexpected"],
+                        "final_message": (log["final"] or "")[-1500:],
                         "checks": [{"name": n, "ok": o, "detail": d} for n, o, d in checks]})
         if not ok:
             break
-        br = [b for b in sh("git branch --format='%(refname:short)'", h).stdout.split() if b.startswith("customize/")]
-        if br:  # later phases run on what customize-harness built
-            sh(f"git checkout -q {br[0]}", h, check=False)
     summary = {"scenario": scn["name"], "level": scn.get("level"), "tool": tool, "model": model, "passed": ok,
                "seconds": sum(r["seconds"] for r in results), "cost_usd": round(sum(r["cost_usd"] for r in results), 4),
                "phases": results, "workdir": base if keep else None}

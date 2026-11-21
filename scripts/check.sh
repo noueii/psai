@@ -6,6 +6,7 @@
 #   --discover  also ask the installed tools (opencode, pi, omp) which skills they see
 #   <extra-root> also validate another harness root (L0 content checks + L2)
 set -uo pipefail
+unset HARNESS_TRACE   # our own check-diff tests must not write into an eval run's trace
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd -P)"
 FIX="$ROOT/evals/fixtures/harness-content"

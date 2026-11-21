@@ -14,23 +14,33 @@ phases:
       workflow with me. Call the workflow "coding".
     owner:
       max_turns: 25
-      answers:   # first match wins; the owner's real choices
-        - match: "accept|look good|looks right|proceed|shall i|ready to build|go ahead|approve|confirm|proposal|propose"
-          answer: Accepted. Build it, commit it on a customize/ branch, no PR and no push.
+      answers:   # first match wins, against the question only; the owner's real choices
+        - match: "accept|look good|looks right|proceed|shall i build|ready to build|go ahead|approve this|confirm|proposal|propos"
+          answer: >-
+            Accepted if it has all of this, otherwise add what's missing and show me again: clarify (and size) ->
+            small goes straight to the engineer, big gets a plan I iterate and accept -> engineer (anything) -> qa
+            from the spec (tests only) -> verify loop (max 2, then escalate) -> AI review by a reviewer (changes
+            nothing) with lenses correctness, spec fit, simplicity -> my review -> sanitize -> handover with my four
+            sections; QA re-runs only when the spec changed or no checks exist; small review fixes go back to verify;
+            my escalation policy under Owner rules. Build it, commit it on a customize/ branch, no PR, no push.
         - match: "scope|everywhere|this repo|this workflow only"
           answer: Everywhere.
-        - match: "handover|report|hand over|finish|summary at the end"
+        - match: "handover|report|hand over|finish|end of a task|summary"
           answer: >-
             End every task with a handover with exactly these sections: What changed / How it was verified /
             Decisions made without you / Open, needs you.
-        - match: "escalat|autonom|decide|when.*ask|interrupt|permission"
+        - match: "human|look|where.*(i|you).*review|review point|approve|sign.?off"
+          answer: >-
+            Two places: for big tasks I accept the plan first (we iterate until I accept), and I review every change
+            after the AI review, before sanitize and handover. Loops I drive have no limit.
+        - match: "escalat|autonom|decide alone|when.*ask|must ask|interrupt|permission"
           answer: >-
             Fully autonomous otherwise. Escalate only when: a requirement is unclear AND the answer changes the
             outcome, and code, docs and knowledge can't settle it; the action is irreversible or visible to others
             (merge, deploy, posting to people, deleting what isn't yours); it goes against a stated rule or
             preference, or two rules conflict; you're still stuck after two real attempts; the scope grows well
             beyond what was asked. Otherwise decide, and log the decision and its reason in the handover and the
-            knowledge inbox. Never merge.
+            knowledge inbox. Never merge. Put this under Owner rules in global.md.
         - match: "size|small|big|plan"
           answer: >-
             Size every task. Small (clear, low-risk, contained): one shot, no plan. Big (multi-repo, API/schema/data
@@ -40,15 +50,16 @@ phases:
             Three roles, each a fresh agent: engineer implements (may change anything); qa writes tests and checks
             from the spec, never from the engineer's notes (may change tests only); reviewer reviews through lenses
             correctness, spec fit and simplicity (changes nothing).
-        - match: "check|test|verif|limit|retry|max"
+        - match: "check|test|verif|limit|retry|max|prove"
           answer: >-
             QA's checks plus the repo's tests prove it. Failures go back to the engineer, at most 2 tries, then
             escalate. AI review small fixes go back to verify, rework to the engineer. My own review loops have no
             limit. Re-run QA only when the spec changed or no checks exist yet.
         - match: "step|loop|flow|stage|process|kind|type|what.*task"
           answer: >-
-            Coding tasks in my repos. The loop: clarify -> size (small = one shot, big = plan iterated with me) ->
-            engineer -> QA from the spec -> verify loop -> AI review with lenses -> my review -> sanitize -> handover.
+            Coding tasks in my repos: features, fixes, refactors, docs and config. The loop: clarify -> size (small =
+            one shot, big = plan iterated with me) -> engineer -> QA from the spec -> verify loop -> AI review with
+            lenses -> my review -> sanitize -> handover.
         - match: "pattern|option|would you like|do you want|should i"
           answer: Yes, where it matches what I described. Otherwise your call.
       default: >-

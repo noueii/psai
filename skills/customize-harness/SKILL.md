@@ -11,7 +11,7 @@ description: "Builds and changes the owner's harness setup WITH the owner: boots
 Ask the owner ONE question per message, with the fixed block, kind `question`, node `customize` (`H/skills/work/escalation.md`). Offer options with your recommendation first. Don't ask what the owner already told you or what LAYOUT.md settles.
 
 ## Bootstrap (no workflows yet)
-1. **Interview** the owner about how they work, one question at a time:
+1. **Interview** the owner about how they work, one question at a time. Cover EVERY topic below before proposing anything; skip a topic only if the owner already answered it:
    - what kinds of tasks they hand to agents;
    - the steps a task goes through, and where a human must look;
    - which roles exist and what each may change;
@@ -26,7 +26,7 @@ Ask the owner ONE question per message, with the fixed block, kind `question`, n
    - [sizing](patterns/sizing.md)
    - [a handover template](patterns/handover.md)
    - [a decide-and-log escalation policy](patterns/decide-and-log.md)
-3. **Propose** the first workflow as a short summary: nodes, edges, roles, attachments. Ask for acceptance, then build it (below).
+3. **Propose** the first workflow as a short summary: nodes, edges, roles and what each may change, human points, loop limits, attachments, owner rules. Ask for acceptance; if the owner adds or corrects something, revise and ask again. Then build it (below).
 
 ## Add or change one piece
 1. Ask what should change and why, if that isn't clear yet.
@@ -35,14 +35,15 @@ Ask the owner ONE question per message, with the fixed block, kind `question`, n
 
 ## Build
 1. Write the files per LAYOUT.md, using the formats in each folder's README.md. For a role, also create `knowledge/roles/<role>/INDEX.md` and `inbox.md`.
-2. For a new workflow, also write:
+2. Owner rules for every task (for example an escalation policy) go under `## Owner rules` in `instructions/global.md`.
+3. For a new workflow, also write:
    - its branch in `workflows/ROUTING.yaml`;
    - its simulator cases `workflows/<name>.cases.yaml`, covering every edge you added, every loop limit and every escalation;
    - at least one eval scenario `evals/scenarios/<name>.yaml`.
-3. Validate:
+4. Validate:
    - `H/scripts/check.sh --quick`;
    - `python3 H/scripts/simulate.py H`;
    - `python3 H/scripts/graph.py H --update-readme`.
 
    Fix until all three pass.
-4. Commit on a branch named `customize/<slug>`. Open a PR if the repo has a remote and the owner wants one. Report what you added, where, and how to try it.
+5. Commit on a branch named `customize/<slug>`. Open a PR if the repo has a remote and the owner wants one. Report what you added, where, and how to try it.

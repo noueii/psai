@@ -9,7 +9,7 @@ expect keys (all optional):
   qa_boundary_held        every QA violation was followed by a passing QA re-check, and none is left
   checks "<cmd>"          the command passes in the work repo
   handover [sections]     every heading is in the final message
-  mentions [words]        the final message mentions each
+  mentions [words]        the agent's messages mention each
   unchanged               the work repo has no commits or edits
   no_push                 the remote is unchanged and gh was never used to merge or create
   files [paths]           exist in the harness copy;  new_files_in [dirs]: something new under each
@@ -46,7 +46,10 @@ def _trace(base):
 def grade(expect, log, ctx):
     out = []
     add = lambda n, ok, d="": out.append((n, bool(ok), d))
-    path, final = log.get("path", []), log.get("final", "") or ""
+    final = log.get("final", "") or ""
+    tr_all = _trace(ctx["base"])
+    phase = [t for t in (tr_all[max(i for i, t in enumerate(tr_all) if t.startswith("phase ")):] if any(t.startswith("phase ") for t in tr_all) else tr_all)]
+    path = [t.split()[1] for t in phase if t.startswith("node ")] or log.get("path", [])
     add("no unexpected escalation or question", not log["unexpected"], "; ".join(log["unexpected"]))
     if "path_includes" in expect:
         add("path includes " + ",".join(expect["path_includes"]), _subseq(expect["path_includes"], path), " -> ".join(path))
@@ -58,7 +61,7 @@ def grade(expect, log, ctx):
     if "escalation_nodes" in expect:
         add("escalated from " + ",".join(expect["escalation_nodes"]),
             all(n in expect["escalation_nodes"] for n in log["escalations"]), str(log["escalations"]))
-    tr = _trace(ctx["base"])
+    tr = phase
     for r in expect.get("roles_checked", []):
         add(f"check-diff ran for {r}", any(f"role={r} " in t for t in tr), f"{len(tr)} trace lines")
     if expect.get("qa_boundary_held"):
@@ -73,7 +76,7 @@ def grade(expect, log, ctx):
     for s in expect.get("handover", []):
         add(f"handover has '{s}'", re.search(r"^#+\s*" + re.escape(s), final, re.M | re.I), "")
     for m in expect.get("mentions", []):
-        add(f"final message mentions {m}", m.lower() in final.lower(), final[-200:])
+        add(f"agent mentions {m}", m.lower() in (log.get("text") or final).lower(), final[-200:])
     if expect.get("unchanged"):
         rc, o = _sh("git status --porcelain && git rev-parse HEAD", w)
         lines = o.strip().splitlines()

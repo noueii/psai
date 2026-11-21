@@ -15,6 +15,7 @@
                                           psai check --framework [args] runs psai's own tests (scripts/check.sh)
   psai new-stack <name> [--dir D]         start a stack from template/stack (a git repo), added as a dev stack
   psai build --standalone [<stack>] [--target claude] [--out D] [--check]   native packages, no psai install needed
+  psai publish [<stack>] [--standalone] [--yes]   check, tag v<version>, push it; --standalone: a GitHub release
   psai eval <stack|path> [scenario...] [--tool T] [--runs N]   the stack's AI evals in a temp home
   psai stack add|remove|update|list|sync|diff ...   install and manage stacks (scripts/stacks.py)
   psai resolve model <stack>:<role> [--tool T]   the role's model for a tool (scripts/models.py)
@@ -226,6 +227,9 @@ def main(argv):
         except stacks.StackError as e:
             print(f"psai new-stack: {e}", file=sys.stderr)
             return 1
+    if cmd == "publish":
+        import publish  # noqa: PLC0415
+        return publish.main(rest)
     if cmd == "build":
         import build  # noqa: PLC0415
         return build.main(rest)

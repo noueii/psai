@@ -157,7 +157,8 @@ class Claude:
             sys.path.insert(0, os.path.join(h, "scripts"))
             import stacks  # noqa: PLC0415
             for n, target in stacks.skill_sources(env["PSAI_HOME"]):
-                os.symlink(target, os.path.join(sk, n))
+                if not os.path.lexists(os.path.join(sk, n)):  # a later phase reuses the links
+                    os.symlink(target, os.path.join(sk, n))
         for sub in ("skills", "my-skills") if env["PSAI_HOME"] == h else ():
             d = os.path.join(h, sub)
             for n in sorted(os.listdir(d)) if os.path.isdir(d) else []:

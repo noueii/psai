@@ -16,7 +16,7 @@ A tool-agnostic agent harness for Claude Code, opencode, pi and oh-my-pi (omp). 
 
 From then on, give agents tasks as usual. `work` routes each task to one of your workflows and runs it, then runs a retro.
 
-`install.sh` also links the `psai` command into `~/.local/bin`: `psai status`, `psai doctor`, `psai sync`, `psai retro`, `psai update`, `psai adopt <skill>`, `psai check`, `psai context`, `psai graph`, `psai simulate`, `psai install`.
+`install.sh` also links the `psai` command into `~/.local/bin`: `psai status`, `psai doctor`, `psai sync`, `psai retro`, `psai update`, `psai adopt <skill>`, `psai check`, `psai context`, `psai graph`, `psai simulate`, `psai resolve`, `psai install`.
 
 ## Get updates: the sync skill
 ```sh
@@ -68,6 +68,8 @@ workflows/ steps/ roles/ guides/ templates/ knowledge/ my-skills/   yours; empty
 skills.yaml              yours, not shipped: pinned skills from other people, and an ignore list
 scripts/                 psai.py (the `psai` command), check.sh, simulate.py, graph.py, harness.py, skills.py, ledger.py, sync.py, retro.py, test-*.sh
 migrations/              NNNN-<slug>.sh, run once per machine
+schemas/                 stack.schema.json: the format of a stack's stack.yaml (ADR 0011)
+VERSION                  the framework's version
 .state/                  local, git-ignored: the session ledger, the stage worktree, retro reports, install and migration records
 evals/                   run.sh, driver.py, fixtures/, scenarios/, graders/, results/
 docs/decisions/          ADRs about psai itself

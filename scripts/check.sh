@@ -168,6 +168,11 @@ check "allows the edge after check-diff" bash -c "$(declare -f trun); TR='$TR' t
 echo "check-diff role=checker may_change=nothing result=ok files=0" >> "$tg/.git/psai-trace"
 check "escalate resumes the asker" bash -c "$(declare -f trun); TR='$TR' tg='$tg' FIX='$FIX'; trun escalate && trun check"
 
+echo "L0 psai resolve and stack.yaml (scripts/test-resolve.sh; fixture stacks in a temp PSAI_HOME)"
+while IFS= read -r line; do
+  case "$line" in "  ok   "*) pass "${line#  ok   }" ;; "  FAIL "*) fail "${line#  FAIL }" ;; esac
+done < <("$ROOT/scripts/test-resolve.sh" 2>/dev/null)
+
 fi
 
 echo "L2 simulate"

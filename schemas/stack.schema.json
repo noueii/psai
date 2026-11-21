@@ -1,0 +1,78 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/noueii/psai/schemas/stack.schema.json",
+  "title": "psai stack.yaml",
+  "description": "A psai stack's manifest (ADR 0011, section 2). scripts/resolve.py validates it with the subset of JSON Schema used here.",
+  "type": "object",
+  "required": ["schema", "name", "version", "description", "psai"],
+  "additionalProperties": false,
+  "properties": {
+    "schema": {"type": "integer", "enum": [1]},
+    "name": {"type": "string", "pattern": "^[a-z][a-z0-9-]{1,31}$"},
+    "version": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+([-+][0-9A-Za-z.-]+)?$"},
+    "description": {"type": "string", "maxWords": 25},
+    "author": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {"name": {"type": "string"}, "github": {"type": "string", "pattern": "^[A-Za-z0-9-]+$"}}
+    },
+    "repository": {"type": "string"},
+    "license": {"type": "string"},
+    "psai": {"type": "string", "format": "version-range"},
+    "requires": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "source", "version"],
+        "additionalProperties": false,
+        "properties": {
+          "name": {"type": "string", "pattern": "^[a-z][a-z0-9-]{1,31}$"},
+          "source": {"type": "string"},
+          "version": {"type": "string", "format": "version-range"}
+        }
+      }
+    },
+    "exports": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "workflows": {"$ref": "#/$defs/names"},
+        "roles": {"$ref": "#/$defs/names"},
+        "steps": {"$ref": "#/$defs/names"},
+        "guides": {"$ref": "#/$defs/names"},
+        "templates": {"$ref": "#/$defs/names"},
+        "skills": {"$ref": "#/$defs/names"}
+      }
+    },
+    "routing": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {"priority": {"type": "integer"}}
+    },
+    "models": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "default": {"type": "string"},
+        "roles": {"type": "object"},
+        "tiers": {"type": "object"}
+      }
+    },
+    "build": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {"commit_dist": {"type": "boolean"}}
+    },
+    "disable": {"type": "array", "items": {"type": "string"}},
+    "prefer": {"type": "array", "items": {"type": "object"}},
+    "priority": {"type": "object"}
+  },
+  "$defs": {
+    "names": {
+      "oneOf": [
+        {"type": "string", "enum": ["*"]},
+        {"type": "array", "items": {"type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"}}
+      ]
+    }
+  }
+}

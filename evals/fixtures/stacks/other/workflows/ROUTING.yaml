@@ -1,0 +1,4 @@
+tree:
+  ask: What is the request?
+  answers:
+    - { if: sorting notes, then: { workflow: triage } }

@@ -7,3 +7,4 @@
   `check.sh --upstream` and an L1 fork-merge test enforce this.
 - Why: pulling upstream updates into a fork must not conflict with the user's own setup.
 - Source: v2 design review.
+- **Superseded** (2026-11-22) by [0011](0011-framework-and-stacks.md): psai is a framework installed once per machine, content lives in stacks, and your own setup lives in your overlay (`nostack`). Migration 0002 converts a fork-layout home. The LAYOUT owner column and the fork-merge test are gone.

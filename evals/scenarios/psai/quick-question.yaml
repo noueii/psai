@@ -1,7 +1,7 @@
 name: quick-question
 level: L3
 about: A quick question is answered directly, with no workflow and no escalation, and nothing changes.
-content: harness-content
+stacks: { example: stacks/example }
 fixture: textkit
 task: Quick question, no changes please. What does slugify return for "Hello World"?
 owner:

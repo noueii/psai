@@ -1,6 +1,6 @@
 # 0011: psai is a framework; stacks are separate repos (2026-11-22)
 
-Status: **accepted** (2026-11-22). The owner accepted this plan and answered its open questions (section 19). It supersedes [0007](0007-fork-model.md) once its PRs land (PR 10). It is built as the stacked PR series in section 17, on main after PRs #2-#4.
+Status: **accepted** (2026-11-22); implemented in psai **3.0.0**. The owner accepted this plan and answered its open questions (section 19). It supersedes [0007](0007-fork-model.md) once its PRs land (PR 10). It is built as the stacked PR series in section 17, on main after PRs #2-#4.
 
 ## Decision
 - **psai is the framework, installed once per machine.** It holds the router, the engine, the installer, the checks, the authoring skill (customize-harness), retro and sync, build and publish. It ships no content.

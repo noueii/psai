@@ -1,23 +1,18 @@
 # psai
 
-A tool-agnostic agent harness for Claude Code, opencode, pi and oh-my-pi (omp). It ships **vanilla**: a workflow engine, a guide that builds your own workflows with you, knowledge capture, and empty, documented folders. You fork it and build your own stack in the fork. Every skill is model-invoked, so agents run your workflows on their own.
+A tool-agnostic agent framework for Claude Code, opencode, pi and oh-my-pi (omp). psai is the **framework**: a router, a workflow engine, role agents with checked boundaries, knowledge capture, retros and sync. It ships no workflows. Your workflows, roles, steps, guides, templates and skills live in **stacks**: git repos you install, several at once, or author and publish yourself. Your own adjustments live in your **overlay**, the stack `nostack`, which always wins. Every skill is model-invoked, so agents run your workflows on their own. Design: [docs/decisions/0011-framework-and-stacks.md](docs/decisions/0011-framework-and-stacks.md).
 
-## Use it
-1. Fork this repo on GitHub, then clone **your fork** anywhere:
-   ```sh
-   git clone <your-fork-url> psai && cd psai
-   ```
-2. Install. It works from wherever the clone is; preview first:
-   ```sh
-   ./install.sh --dry-run
-   ./install.sh
-   ```
-3. Ask any agent to set up your harness. The `customize-harness` skill interviews you one question at a time, then builds your first workflow with its steps, roles, guides and templates. Each piece is filed per [LAYOUT.md](LAYOUT.md), validated and staged; at the end of the task the `retro` skill turns it into one PR on your fork for you to merge.
+## Install the framework
+```sh
+git clone https://github.com/noueii/psai && cd psai
+./install.sh --dry-run    # preview
+./install.sh
+```
+This sets up `~/.psai` (`$PSAI_HOME` moves it): `framework/` links this clone, `overlay/` is your own stack (a git repo; push it to a remote of yours to move your setup), `stacks/` the stacks you install and `state/` this machine's state. It installs one plugin per tool and the `psai` command (`~/.local/bin/psai`). Already on a fork of psai 2.x? Install from your fork: migration 0002 moves your workflows, roles, knowledge and skills into your overlay, and leaves the clone's files alone.
 
-From then on, give agents tasks as usual. `work` routes each task to one of your workflows and runs it, then runs a retro.
+Then ask any agent to set up a workflow: the `customize-harness` skill interviews you one question at a time and builds it in your overlay (or a stack). At the end of the task the `retro` skill turns what was staged into a PR on your overlay for you to merge. From then on, give agents tasks as usual: `request-router` picks the workflow, `work` runs it, then a retro.
 
-## Make a stack
-`psai new-stack acme` creates `./acme` from [template/stack/](template/stack/stack.yaml): a git repo with a `stack.yaml`, a README per content folder and a CI workflow, added to this machine as a dev stack (psai reads your working clone). Build its workflows with the `customize-harness` skill, which asks first which stack a change goes to. `psai check acme` (or `psai check .` in its folder) validates it; `psai eval acme` runs its eval scenarios in a temp home.
+`psai --help` lists every command: `status`, `doctor`, `stack`, `new-stack`, `check`, `eval`, `sync`, `retro`, `update`, `adopt`, `resolve`, `route`, `node`, `setup models`, ...
 
 ## Add stacks
 A stack is a git repo of workflows, roles, steps, guides, templates and skills with a `stack.yaml` (ADR 0011). Install as many as you like; every name is namespaced (`stack:workflow`), and your overlay `nostack` always wins:
@@ -34,7 +29,8 @@ A role may name its model: `model: strong` (a tier: `fast | balanced | strong`) 
 
 To change one file of a stack, override it in your overlay instead of forking the stack: `psai stack override acme:roles/reviewer.md` copies it to `~/.psai/overlay/overrides/acme/roles/reviewer.md` for you to edit; `psai stack update` tells you when the original changes, and `psai stack check acme` validates the stack with your overrides in place. Adding a stack never runs its code. A release is a `vX.Y.Z` tag; a branch is never pinned. A stack's `requires:` are installed with it, one version each; a conflict is refused.
 
-`install.sh` also links the `psai` command into `~/.local/bin`: `psai status`, `psai doctor`, `psai sync`, `psai retro`, `psai update`, `psai adopt <skill>`, `psai check`, `psai context`, `psai graph`, `psai simulate`, `psai resolve`, `psai route`, `psai node`, `psai trace`, `psai check-diff`, `psai install`.
+## Make a stack
+`psai new-stack acme` creates `./acme` from [template/stack/](template/stack/stack.yaml): a git repo with a `stack.yaml`, a README per content folder and a CI workflow, added to this machine as a dev stack (psai reads your working clone). Build its workflows with the `customize-harness` skill, which asks first which stack a change goes to. `psai check acme` (or `psai check .` in its folder) validates it; `psai eval acme` runs its eval scenarios in a temp home.
 
 ## Get updates: the sync skill
 End your workflows with a `sync` node (`handover → retro → sync → ready`; customize-harness offers it) or ask any agent to sync. Sync checks first, deterministically and with short-timeout fetches: a newer psai release, a newer release of a pinned stack in range, new commits on your overlay's remote, an install that doesn't match the framework, pending migrations, sessions or staged changes not yet in a PR, tool drift. Nothing out of sync: it stops at zero cost. Otherwise it fast-forwards your overlay (keeping your local inbox entries) and the framework, re-installs, runs pending migrations, moves stack pins you agree to (`psai stack update`, which reports overrides whose original changed), adopts drift worth keeping by staging it, and opens one PR per repo you own (your overlay, each stack you author). A framework release that one of your stacks doesn't support yet is refused unless you force it (the stack is then disabled until it updates); a conflict changes nothing and reports "psai update waiting: needs you".
@@ -42,8 +38,8 @@ End your workflows with a `sync` node (`handover → retro → sync → ready`; 
 **Trade-off:** psai has no background job, no cron and no startup check. It updates only when a workflow runs sync, or when you ask an agent to sync (`psai sync` runs the deterministic part by hand).
 
 ## How it works
-- **The nudge:** each tool gets a plugin that injects a short, live always-on text (about 170 words plus a line per workflow): the core rules, your `owner.md`, "run the request-router skill first", your workflows' names and `when`, "to add or change a skill, use customize-harness", when to run the retro outside a workflow, how many skills in your tool folders psai doesn't manage, and how many earlier sessions still wait for a retro (only when some do).
-- **`request-router`:** decides each request. A matching workflow runs; a repeatable task with no workflow escalates and offers `customize-harness`; a one-off is handled normally.
+- **The nudge:** each tool gets a plugin that injects a short, live always-on text (about 180 words plus a line per workflow, ≤ 300 words of workflow lines: low-priority stacks collapse to one line): the core rules, your `owner.md`, each stack's short rules, "run the request-router skill first", every installed workflow as `stack:name` with its `when`, "to add or change a skill, use customize-harness", when to run the retro outside a workflow, how many skills in your tool folders psai doesn't manage, and how many earlier sessions still wait for a retro (only when some do).
+- **`request-router`:** decides each request from the merged index of every installed stack (`psai route`). A matching workflow runs (several: your `prefer` rules, then priority); a repeatable task with no workflow escalates and offers `customize-harness`; a one-off is handled normally.
 - **`work`:** the engine, read once a workflow is chosen. It runs the workflow node by node:
   - a fresh agent per role;
   - each role's git diff checked against its `may_change`;
@@ -51,48 +47,48 @@ End your workflows with a `sync` node (`handover → retro → sync → ready`; 
   - escalations in one fixed format;
   - a final report.
 
-  `trace.sh` refuses any move that isn't an edge of the workflow.
-- **`customize-harness`:** bootstraps your first workflow, and later adds or changes one piece. It offers proven design patterns as options, never as defaults.
-- **`capture-knowledge`:** agents record facts, decisions and proposed rules in inboxes. Nothing goes to GitHub while a task runs.
+  `psai trace` refuses any move that isn't an edge of the workflow; `psai node` gives the engine each node's files, resolved by name, and the role's skills and model.
+- **`customize-harness`:** asks which stack a change goes to (your overlay, a stack you author, or a new one), then bootstraps a first workflow or adds or changes one piece. It offers proven design patterns as options, never as defaults. Someone else's stack changes only through an override in your overlay.
+- **`capture-knowledge`:** agents record facts, decisions and proposed rules in inboxes, which always live in your overlay. Nothing goes to GitHub while a task runs.
 - **`retro`:** at the end of a task (`work` always runs it after a workflow; outside workflows the agent runs it when it captured or staged something; a session that ended without one is flagged in the next session's nudge). It reads the run (trace, inbox entries, escalations, loops at their limit, rejected diffs, review findings, time and tokens), ranks findings and files each where it belongs: your preferences in your overlay, a stack you author in that stack, someone else's stack as an override in your overlay plus a drafted suggestion for its author (a PR to them only when you say yes). It opens one PR per repo it changed, the report as the description. Nothing worth changing: no PR.
 - **`sync`:** runs only where a workflow has a `sync` node, or when you ask. See "Get updates".
-- **Session ledger:** each tool's plugin records every session locally in `.state/sessions/` (git-ignored): tool, project, start and end, workflows, escalations, retro done, captured counts, drift, psai version. Retro and sync read and mark it; `psai status` and `psai doctor` summarize it.
+- **Session ledger:** each tool's plugin records every session locally in `~/.psai/state/sessions/`: tool, project, start and end, workflows (`stack:name`), escalations, retro done, captured counts, drift, the psai and stack versions. Retro and sync read and mark it; `psai status` and `psai doctor` summarize it.
 - **Migrations:** `migrations/NNNN-*.sh` run once per machine from install.sh (and so from sync and `psai update`).
-- **Skills:** roles and steps name the skills they need (`skills: {required, optional}`); `work` lists them in each role agent's brief. Your own skills live in `my-skills/`, other people's are pinned in `skills.yaml`, and `harness.py skills` shows every skill your tools can see. Skills psai doesn't manage are reported, never blocked; `install.sh --adopt <name>` brings one in. See [my-skills/README.md](my-skills/README.md).
+- **Skills:** roles and steps name the skills they need (`skills: {required, optional}`); `work` lists them in each role agent's brief, each from the role's own stack. A stack's own skills live in its `my-skills/`, other people's are pinned in its `skills.yaml`, and `psai skills` shows every skill your tools can see. Skills psai doesn't manage are reported, never blocked; `psai adopt <name>` brings one into your overlay. See [template/stack/my-skills/README.md](template/stack/my-skills/README.md).
+- **Model per role:** a role may name a tier (`fast | balanced | strong`) or ids per tool; `work` passes it when the tool can (Claude Code, pi).
 
 ## Layers
-| Layer | Answers | Written by | Loaded |
+| Layer | Answers | Lives in | Loaded |
 |---|---|---|---|
-| skill | how the machinery runs | upstream | discovered by the tool |
-| role | who I am and what I may touch | you | when the role starts |
-| step | what happens at this point | you | when the step runs |
-| guide | how this kind of work must be done | you | when a role or step attaches it (`read:`) |
-| template | the exact output format, with an example | you | when a step attaches it |
-| knowledge | what's true, and what was decided and why | agents, via the inbox | on demand, via `knowledge/INDEX.md` |
+| skill | how the machinery runs | the framework (and a stack's `my-skills/`) | discovered by the tool |
+| role | who I am and what I may touch | a stack | when the role starts |
+| step | what happens at this point | a stack | when the step runs |
+| guide | how this kind of work must be done | a stack | when a role or step attaches it (`read:`) |
+| template | the exact output format, with an example | a stack | when a step attaches it |
+| knowledge | what's true, and what was decided and why | a stack (curated) + your overlay (yours, and every inbox) | on demand |
 
-During a task, agents write only to knowledge inboxes and to the task's report. Everything else changes through `customize-harness`, which only stages it (in `.state/stage`, a separate worktree); the retro's (or sync's) one PR carries it, and you approve it. Precedence, most specific wins: the step or role and its `read:` files > `instructions/owner.md` > `instructions/global.md`. A rule for one repo goes in that repo's own AGENTS.md or docs.
+During a task, agents write only to inboxes and to the task's report. Everything else changes through `customize-harness`, which only stages it in the target's stage worktree (`psai stage [<stack>]`); the retro's (or sync's) PRs carry it, and you approve them. Precedence, most specific wins: your overlay's override > the stack's file; the step or role and its `read:` files > `instructions/owner.md` > a stack's rules > `instructions/global.md`. A rule for one repo goes in that repo's own AGENTS.md or docs.
 
 ## Structure
 ```
-instructions/global.md   core rules in the injected nudge (≤120 words); your rules go in instructions/owner.md
-plugins/                 one per tool (claude, pi, omp, opencode); each injects `scripts/harness.py context` live
-skills/                  request-router, work (engine, escalation format, check-diff.sh, trace.sh), customize-harness (+ patterns/), capture-knowledge, retro, sync
-workflows/ steps/ roles/ guides/ templates/ knowledge/ my-skills/   yours; empty in vanilla (README only)
-skills.yaml              yours, not shipped: pinned skills from other people, and an ignore list
-scripts/                 psai.py (the `psai` command), check.sh, simulate.py, graph.py, harness.py, skills.py, ledger.py, sync.py, retro.py, test-*.sh
+instructions/global.md   core rules in the injected nudge (≤120 words); your rules go in your overlay's instructions/owner.md
+plugins/                 one per tool (claude, pi, omp, opencode); each injects `psai context` live
+skills/                  request-router, work, customize-harness (+ patterns/), capture-knowledge, retro, sync
+scripts/                 psai.py (the `psai` command), resolve.py, index.py, engine.py, stacks.py, models.py, harness.py,
+                         skills.py, ledger.py, sync.py, retro.py, simulate.py, graph.py, check.sh, test-*.sh
+template/stack/          what `psai new-stack` copies
+schemas/                 stack.schema.json
 migrations/              NNNN-<slug>.sh, run once per machine
-schemas/                 stack.schema.json: the format of a stack's stack.yaml (ADR 0011)
-VERSION                  the framework's version
-.state/                  local, git-ignored: the session ledger, the stage worktree, retro reports, install and migration records
-evals/                   run.sh, driver.py, fixtures/, scenarios/, graders/, results/
+evals/                   run.sh, driver.py, fixtures/ (test stacks in fixtures/stacks/), scenarios/, graders/, results/
 docs/decisions/          ADRs about psai itself
-LAYOUT.md                where every kind of file goes, and who owns it
+LAYOUT.md                where every kind of file goes, in a stack and in the home
+VERSION                  the framework's version (stacks declare the range they support)
 ```
 
 ## Example workflow (test content)
-Vanilla has no workflows. This is the tiny, neutral `example` workflow from `evals/fixtures/harness-content/`, which the tests use. Dotted edges are loops; each automatic loop shows its limit. Your own workflows' diagrams go in `workflows/GRAPHS.md`.
+psai ships no workflows. This is the tiny, neutral `example` workflow from the test stack `evals/fixtures/stacks/example/`, which the tests use. Dotted edges are loops; each automatic loop shows its limit. A stack's own diagrams go in its `workflows/GRAPHS.md`.
 
-<!-- graph:evals/fixtures/harness-content/workflows/example.yaml:start -->
+<!-- graph:evals/fixtures/stacks/example/workflows/example.yaml:start -->
 ```mermaid
 flowchart TD
   START(("task")) --> do
@@ -119,7 +115,7 @@ flowchart TD
   class escalate esc
   class ready done
 ```
-<!-- graph:evals/fixtures/harness-content/workflows/example.yaml:end -->
+<!-- graph:evals/fixtures/stacks/example/workflows/example.yaml:end -->
 
 ## Install details
 It installs only for tools whose config folder exists (`~/.claude`, `~/.config/opencode`, `~/.pi/agent`, `~/.omp/agent`):
@@ -140,13 +136,12 @@ It backs up `~/.claude/settings.json` before the plugin CLI first changes it. op
 
 ## Tests
 ```sh
-scripts/check.sh              # L0 structure, L1 installer and fork updates, L2 simulator
+scripts/check.sh              # L0 structure and content, L1 installer, stacks, sync and retro in temp HOMEs, L2 simulator
 scripts/check.sh --discover   # plus: opencode, pi and omp list the skills from a temp HOME
-evals/run.sh                  # L3 + L4 AI evals, headless, on throwaway copies (costs money; keep it small)
+scripts/check.sh --upstream   # plus: the framework ships no content folder and no stack
+evals/run.sh                  # L3 + L4 AI evals, headless, in throwaway homes (costs money; keep it small)
 ```
-- **L0:** LAYOUT placement, every README, frontmatter, every `step`/`read:`/`role` path, and the graph rules: reachable, ends at ready, escalate or a handoff, and every automatic loop has a limit. Also checks that diagrams are fresh, that `check-diff.sh` enforces `may_change`, and that `trace.sh` enforces the graph.
-- **L1:** install, update, uninstall, dry-run, idempotency, no clobbering, stale-link and v1 cleanup for all four tools. `scripts/test-plugins.sh` proves, with no AI and no network, that each plugin's nudge reaches the session. Also checks that a fork with user content pulls an upstream change to every upstream-owned file without conflicts.
-- **Skills (L0/L1):** the registry in a temp HOME with a skill in every location, `skills:` frontmatter, pinned `skills.yaml` entries fetched from a local git repo (no network), the ignore list, adopting your own skill and a pack's, and the checks (a required skill that resolves nowhere fails; duplicates and project-only required skills warn).
-- **Sync, retro, ledger (L0/L1):** `scripts/test-sync.sh` in temp HOMEs against bare local git remotes, no network: the out-of-sync check against crafted states (behind, install drift, unsynced, staged, drift, upstream, nothing to do → a no-op), migrations running once, the ff-only update keeping inbox entries, conflicts and divergence changing nothing, the ledger written by each plugin's hooks, one PR branch per run, and retro handing its report to a following sync node. `test-plugins.sh` also checks that real pi, omp and opencode sessions write a ledger record.
+- **L0:** every README, LAYOUT placement, frontmatter, refs resolved across stacks (`psai resolve`, exports included), the graph rules (reachable, ends at ready, escalate or a handoff, every automatic loop limited), fresh diagrams, `check-diff.sh` and `trace.sh`, no hard-coded home paths, the merged routing index and the nudge budget, models per role (`test-resolve.sh`, `test-routing.sh`, `test-models.sh`).
+- **L1:** install, uninstall, dry-run, idempotency, no clobbering, the home and migration 0002, `psai stack` (add by tag or commit, requires, update, overrides and drift, skills across stacks, new-stack, check, eval), retro and sync per target with suggestions, and the plugins' nudge and ledger, all in temp HOMEs with local git repos and no network (`test-stacks.sh`, `test-targets.sh`, `test-sync.sh`, `test-plugins.sh`).
 - **L2:** `simulate.py` walks each workflow with scripted outcomes (`workflows/<name>.cases.yaml`).
 - **L3/L4:** see [evals/README.md](evals/README.md).

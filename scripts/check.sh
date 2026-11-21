@@ -4,13 +4,13 @@
 # Usage: scripts/check.sh [--quick] [--discover] [--upstream] [<extra-root>...]
 #   --quick     skip the installer tests (what customize-harness runs while editing)
 #   --discover  also ask the installed tools (opencode, pi, omp) which skills they see
-#   --upstream  also fail if the tree ships any user-owned file (run this in psai itself, not in a fork)
-#   <extra-root> also validate another harness root (L0 content checks + L2)
+#   --upstream  also fail if the framework ships any content folder or stack (ADR 0011: content lives in stacks)
+#   <extra-root> also validate another stack folder (L0 content checks + L2); `psai check <stack>` does this for users
 set -uo pipefail
 unset PSAI_TRACE PSAI_STATE PSAI_EVAL   # our own tests must not write into an eval run's trace or this machine's state
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd -P)"
-FIX="$ROOT/evals/fixtures/harness-content"
+FIX="$ROOT/evals/fixtures/stacks/example"
 [ -d "$FIX" ] || FIX=""   # L4 eval copies strip the test content; its self-tests are then skipped
 QUICK=0; DISCOVER=0; UPSTREAM=0; EXTRA=()
 for a in "$@"; do
@@ -24,6 +24,9 @@ py() { python3 "$ROOT/scripts/$@"; }
 T="$(mktemp -d)"
 trap 'rm -rf "$T"' EXIT
 export PSAI_STATE="$T/state"   # any state a test writes stays in the temp dir (tests that need their own set it)
+# the framework ships no content: what it validates as a stack is a filled copy of the template new-stack copies
+TPL="$T/template-stack"; cp -r "$ROOT/template/stack" "$TPL"
+sed -i 's/__NAME__/tpl/g; s/__DESCRIPTION__/The template, filled in./; s/__AUTHOR__/psai/; s/__PSAI__/>=3.0 <4/' "$TPL/stack.yaml" "$TPL/README.md"
 
 echo "L0 skills"
 for md in "$ROOT"/skills/*/SKILL.md; do
@@ -38,12 +41,12 @@ done
 check "skills/ is flat" test -z "$(find "$ROOT/skills" -mindepth 3 -name SKILL.md)"
 
 echo "L0 structure"
-missing="$(cd "$ROOT" && find . -type d \( -name .git -o -name .github -o -name .claude-plugin -o -name __pycache__ -o -name .skills-cache -o -name .state -o -path './skills/*' -o -path './my-skills/*' -o -path './evals/fixtures/*/*' -o -path './evals/results/*' \) -prune -o -type d -print \
+missing="$(cd "$ROOT" && find . -type d \( -name .git -o -name .github -o -name .claude-plugin -o -name __pycache__ -o -name .skills-cache -o -name .state -o -path './skills/*' -o -path './evals/fixtures/*/*' -o -path './evals/results/*' \) -prune -o -type d -print \
   | while read -r d; do [ -f "$d/README.md" ] || echo "$d"; done)"
 [ -z "$missing" ] && pass "every folder has a README.md" || fail "folders without README.md: $(echo $missing)"
 check "instructions/global.md is at most 120 words" test "$(wc -w < "$ROOT/instructions/global.md")" -le 120
-for r in "$ROOT" ${FIX:+"$FIX"} ${EXTRA[@]+"${EXTRA[@]}"}; do
-  label="$( [ "$r" = "$ROOT" ] && echo vanilla || { [ "$r" = "$FIX" ] && echo fixture || echo "$r"; })"
+for r in "$TPL" ${FIX:+"$FIX"} ${EXTRA[@]+"${EXTRA[@]}"}; do
+  label="$( [ "$r" = "$TPL" ] && echo template || { [ "$r" = "$FIX" ] && echo fixture || echo "$r"; })"
   if out="$(python3 -c "
 import sys; sys.path.insert(0, '$ROOT/scripts'); import harness
 p = harness.validate('$r') + harness.check_layout('$r', '$ROOT/LAYOUT.md')
@@ -56,8 +59,7 @@ print('\n'.join(p)); sys.exit(1 if p else 0)")"; then
 done
 check "root README diagram up to date" py graph.py "$ROOT" --check-readme
 if [ -n "$FIX" ]; then  # the sync-tail overlay: the example workflow ending report -> retro -> sync -> ready (skill nodes)
-  st="$T/synctail"; mkdir -p "$st"; (cd "$ROOT" && git ls-files -co --exclude-standard -z | xargs -0 cp --parents -t "$st" 2>/dev/null)
-  cp -r "$FIX"/. "$st/"; cp -r "$ROOT/evals/fixtures/sync-tail/workflows" "$ROOT/evals/fixtures/sync-tail/steps" "$st/"
+  st="$T/synctail"; cp -r "$FIX" "$st"; cp -r "$ROOT/evals/fixtures/sync-tail/workflows" "$ROOT/evals/fixtures/sync-tail/steps" "$st/"
   check "fixture + sync-tail: skill nodes without a step validate" python3 -c "import sys; sys.path.insert(0, '$ROOT/scripts'); import harness; sys.exit(1 if harness.validate('$st') + harness.check_layout('$st', '$ROOT/LAYOUT.md') else 0)"
   check "fixture + sync-tail: simulates and its diagram is fresh" bash -c "python3 '$ROOT/scripts/simulate.py' '$st' >/dev/null && python3 '$ROOT/scripts/graph.py' '$st' --check-readme"
 fi
@@ -79,8 +81,8 @@ repo_layer="$(cd "$ROOT" && git ls-files -co --exclude-standard 2>/dev/null | gr
 
 echo "L0 skills (harness.py skills check: roles' skills resolve; reads your tool folders, never writes)"
 E="$T/emptyhome"; mkdir -p "$E"
-for r in "$ROOT" ${FIX:+"$FIX"} ${EXTRA[@]+"${EXTRA[@]}"}; do
-  label="$( [ "$r" = "$ROOT" ] && echo vanilla || { [ "$r" = "$FIX" ] && echo fixture || echo "$r"; })"
+for r in "$TPL" ${FIX:+"$FIX"} ${EXTRA[@]+"${EXTRA[@]}"}; do
+  label="$( [ "$r" = "$TPL" ] && echo template || { [ "$r" = "$FIX" ] && echo fixture || echo "$r"; })"
   # the fixture is test content: resolve it against an empty HOME so the result doesn't depend on this machine
   if [ "$r" = "$FIX" ]; then out="$(cd "$T" && HOME="$E" python3 "$ROOT/scripts/harness.py" skills check --root "$r")"; rc=$?
   else out="$(python3 "$ROOT/scripts/harness.py" skills check --root "$r")"; rc=$?; fi
@@ -100,11 +102,9 @@ check "nudge says how to add or change a skill" bash -c "python3 '$ROOT/scripts/
 check "nudge names the router skill" bash -c "python3 '$ROOT/scripts/harness.py' context '$ROOT' | grep -q 'request-router'"
 check "PSAI_ROLE gives the role-mode nudge, without routing" bash -c "o=\"\$(PSAI_ROLE=doer python3 '$ROOT/scripts/harness.py' context '$gen')\"; grep -q 'You are the doer inside a running psai workflow' <<< \"\$o\" && ! grep -q 'run the request-router skill first' <<< \"\$o\" && ! grep -q '^- example: ' <<< \"\$o\""
 echo "  info nudge size: $(python3 "$ROOT/scripts/harness.py" context "$ROOT" '~/.psai' | wc -w) words vanilla, $(python3 "$ROOT/scripts/harness.py" context "$gen" '~/.psai' | wc -w) with the test workflow"
-if [ "$UPSTREAM" = 1 ]; then
-  shipped="$(cd "$ROOT" && git ls-files -co --exclude-standard | python3 -c "
-import sys; sys.path.insert(0, 'scripts'); import harness
-print('\n'.join(harness.user_files('.', 'LAYOUT.md', [l.strip() for l in sys.stdin if l.strip()])))")"
-  [ -z "$shipped" ] && pass "upstream ships no user-owned file" || fail "upstream ships user-owned files: $(echo $shipped)"
+if [ "$UPSTREAM" = 1 ]; then  # ADR 0011: psai is the framework; content lives in stacks (template/stack is what new-stack copies)
+  shipped="$(cd "$ROOT" && git ls-files -co --exclude-standard -- workflows roles steps guides templates knowledge my-skills skills.yaml stack.yaml stacks.yaml instructions/owner.md overrides 2>/dev/null)"
+  [ -z "$shipped" ] && pass "the framework ships no content folder and no stack" || fail "the framework ships content: $(echo $shipped)"
 fi
 
 if [ -n "$FIX" ]; then
@@ -203,7 +203,7 @@ done < <("$ROOT/scripts/test-resolve.sh" 2>/dev/null)
 fi
 
 echo "L2 simulate"
-for r in "$ROOT" ${FIX:+"$FIX"} ${EXTRA[@]+"${EXTRA[@]}"}; do
+for r in "$TPL" ${FIX:+"$FIX"} ${EXTRA[@]+"${EXTRA[@]}"}; do
   if out="$(py simulate.py "$r")"; then pass "$(echo "$out" | tail -1) ($(basename "$r"))"; else fail "simulate $(basename "$r")"; echo "$out" | grep FAIL; fi
 done
 
@@ -402,7 +402,6 @@ check "adopt kept skills.yaml's other entries and ignore list" bash -c "grep -q 
 check "the overlay with adopted skills still validates" python3 -c "
 import sys; sys.path.insert(0, '$sf/scripts'); import harness
 sys.exit(1 if harness.validate('$ov') + harness.check_layout('$ov', '$sf/LAYOUT.md') else 0)"
-check "my-skills/ and skills.yaml are user-owned" bash -c "cd '$sf' && test \"\$(printf 'my-skills/own-a/SKILL.md\nmy-skills/own-a/scripts/x.sh\nskills.yaml\nmy-skills/README.md\n' | python3 -c \"import sys; sys.path.insert(0, 'scripts'); import harness; print(' '.join(harness.user_files('.', 'LAYOUT.md', [l.strip() for l in sys.stdin])))\")\" = 'my-skills/own-a/SKILL.md my-skills/own-a/scripts/x.sh skills.yaml'"
 printf 'skills:\n  - {name: pk-tag, source: "file://%s", path: skills/pk-tag, ref: v1}\nignore: [orca-cli]\n' "$pk" > "$ov/skills.yaml"; rm -rf "$ov/my-skills/mine"
 srun > /dev/null 2>&1
 check "removed entries and my-skills unlinked as stale" bash -c "test ! -L '$h/.claude/skills/pk-sha' && test ! -L '$h/.agents/skills/mine' && test ! -L '$h/.claude/skills/npx-b' && test -L '$h/.claude/skills/pk-tag'"
@@ -419,36 +418,9 @@ PSAI_HOME="$c" PSAI_STATE="$h/.psai-state" env -u XDG_CONFIG_HOME HOME="$h" bash
 check "uninstall removes the framework link and its links" bash -c "test ! -L '$c/framework' && test ! -L '$h/.agents/skills/work' && test ! -L '$h/.pi/agent/extensions/psai.ts'"
 
 echo "L1 owner rules reach the nudge"
-fk="$T/ownerfork"; cp -r "$ROOT" "$fk"; rm -rf "$fk/.git"; echo "- Ask before deleting anything." > "$fk/instructions/owner.md"
-check "nudge includes owner.md" bash -c "python3 '$fk/scripts/harness.py' context '$fk' | grep -q 'Ask before deleting anything'"
-
-echo "L1 a fork takes upstream updates without conflicts"
-G="git -c user.email=t@t -c user.name=t"
-up="$T/upstream"; mkdir -p "$up"
-(cd "$ROOT" && git ls-files -co --exclude-standard -z | xargs -0 cp --parents -t "$up" 2>/dev/null)
-(cd "$up" && git init -q -b main && git add -A && $G commit -qm upstream) || fail "upstream repo"
-git clone -q "$up" "$T/fork"; f="$T/fork"
-if [ -n "$FIX" ]; then cp -r "$FIX"/workflows "$FIX"/steps "$FIX"/roles "$FIX"/guides "$FIX"/templates "$FIX"/knowledge "$FIX"/my-skills "$f/"; rm -f "$f"/*/README.md.fix; fi
-# the fixture's folders have no READMEs of their own, so the fork keeps upstream's
-echo "- Ask before deleting anything." > "$f/instructions/owner.md"
-mkdir -p "$f/my-skills/my-notes"; printf -- '---\nname: my-notes\ndescription: "Notes. Use when noting."\n---\n' > "$f/my-skills/my-notes/SKILL.md"
-printf 'skills:\n  - {name: pk, source: github:o/r, path: pk, ref: v1}\nignore: [orca-cli]\n' > "$f/skills.yaml"
-printf '# Inbox\n\n## 2026-01-01: a finding\n- Tag: fact\n' > "$f/knowledge/inbox.md"
-python3 "$f/scripts/graph.py" "$f" --update-readme > /dev/null
-(cd "$f" && git add -A && $G commit -qm "my stack") || fail "fork commit"
-user_before="$(cd "$f" && git ls-files | python3 -c "
-import sys; sys.path.insert(0, 'scripts'); import harness
-print('\n'.join(harness.user_files('.', 'LAYOUT.md', [l.strip() for l in sys.stdin])))" | xargs md5sum)"
-(cd "$up" && for x in README.md LAYOUT.md instructions/global.md skills/*/SKILL.md docs/decisions/*.md $(git ls-files '*README.md'); do echo "<!-- upstream change -->" >> "$x"; done \
-  && echo "# upstream change" >> install.sh && echo "# upstream change" >> scripts/check.sh && $G commit -qam "upstream update")
-(cd "$f" && git remote add upstream "$up" && $G pull -q --no-rebase --no-edit upstream main) > "$T/merge.out" 2>&1
-check "git pull upstream main merges cleanly" bash -c "! grep -qi conflict '$T/merge.out' && test -z \"\$(git -C '$f' diff --name-only --diff-filter=U)\""
-check "upstream changes arrived" grep -q 'upstream change' "$f/LAYOUT.md"
-check "the fork's my-skills/ and skills.yaml count as user files" bash -c "grep -q 'my-skills/my-notes/SKILL.md' <<< '$user_before' && grep -q 'skills.yaml' <<< '$user_before'"
-check "user files untouched by the merge" bash -c "cd '$f' && echo '$user_before' | md5sum -c --quiet"
-check "the fork still validates" python3 -c "
-import sys; sys.path.insert(0, '$f/scripts'); import harness
-sys.exit(1 if harness.validate('$f') + harness.check_layout('$f', '$f/LAYOUT.md') else 0)"
+fk="$T/ownerhome"; mkdir -p "$fk/stacks"; ln -s "$ROOT" "$fk/framework"; python3 "$ROOT/scripts/stacks.py" overlay --home "$fk" >/dev/null
+echo "- Ask before deleting anything." > "$fk/overlay/instructions/owner.md"
+check "nudge includes the overlay's owner.md" bash -c "python3 '$ROOT/scripts/harness.py' context '$fk' | grep -q 'Ask before deleting anything'"
 
 if [ "$DISCOVER" = 1 ]; then
   echo "L1 discovery (real tool binaries, temp HOME, no network calls)"

@@ -2,3 +2,4 @@
 - Decision: psai ships only the machinery (`work`, `customize-harness`, `capture-knowledge`, global.md, LAYOUT.md, scripts, installer, evals) and empty folders with READMEs. Workflows, steps, roles, guides and templates are built WITH the user. Design patterns are offered as options, never pre-built. The only built-in rule: no matching workflow, or unsure: escalate.
 - Why: a harness that encodes one person's process can't be adopted by anyone else or changed safely. Test content stays neutral for the same reason.
 - Source: v2 design review.
+- Note (2026-11-22, [0011](0011-framework-and-stacks.md)): still holds. The framework ships no stack, and `template/stack/` (what `psai new-stack` copies) is empty but for READMEs; `customize-harness` asks which stack a change goes to.

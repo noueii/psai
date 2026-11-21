@@ -3,8 +3,8 @@ level: L3
 about: >-
   The doer requires change-notes, but it isn't installed anywhere. work must escalate from the do node, offering to
   install it, before starting the doer; the owner declines, so nothing changes.
-content: harness-content
-strip: [my-skills]
+stacks: { example: stacks/example }
+strip: [stacks/example/my-skills]
 fixture: textkit
 task: Add `reverse(text)` to textkit/text.py, returning the text reversed, and export it from textkit.
 owner:

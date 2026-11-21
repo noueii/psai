@@ -3,7 +3,7 @@
 # validation, `psai node`'s model line and `psai setup models`. Fixture stacks in a temp PSAI_HOME; no AI, no network.
 set -uo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd -P)"
-FIX="$ROOT/evals/fixtures/harness-content"; FS="$ROOT/evals/fixtures/stacks"
+FIX="$ROOT/evals/fixtures/stacks/example"; FS="$ROOT/evals/fixtures/stacks"
 [ -d "$FIX" ] || exit 0
 fails=0
 pass() { echo "  ok   $*"; }

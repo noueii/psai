@@ -3,7 +3,7 @@ level: L3
 about: >-
   The doer role requires the change-notes skill (my-skills/ in the test content). work lists it in the doer's brief,
   and the doer uses it: CHANGES.md gets a line.
-content: harness-content
+stacks: { example: stacks/example }
 fixture: textkit
 task: Add `reverse(text)` to textkit/text.py, returning the text reversed, and export it from textkit.
 owner:

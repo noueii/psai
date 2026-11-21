@@ -273,9 +273,20 @@ def owner_patterns(layout_md, owner="you"):
     return pats
 
 
+# The paths the fork model (before ADR 0011) gave the user, for a fork whose LAYOUT.md has no owner column: migration
+# 0002 moves exactly these into the overlay.
+LEGACY_USER = ["workflows/<name>.yaml", "workflows/<name>.cases.yaml", "workflows/ROUTING.yaml", "workflows/GRAPHS.md",
+               "steps/<name>.md", "roles/<name>.md", "my-skills/<name>/SKILL.md", "my-skills/<name>/**", "skills.yaml",
+               "knowledge/roles/<role>/INDEX.md", "knowledge/roles/<role>/inbox.md", "guides/<name>.md",
+               "templates/<name>.md", "instructions/owner.md", "knowledge/inbox.md", "knowledge/facts/<topic>.md",
+               "knowledge/decisions/<date>-<slug>.md", "knowledge/INDEX.md", "evals/scenarios/<name>.yaml"]
+
+
 def user_files(root, layout_md, paths):
-    """The subset of `paths` (relative to root) that LAYOUT.md gives to the user."""
-    pats = owner_patterns(layout_md)
+    """The subset of `paths` (relative to root) that a fork's LAYOUT.md gives to the user (its owner column; the
+    legacy list when it has none)."""
+    pats = owner_patterns(layout_md) if os.path.exists(layout_md) else []
+    pats = pats or [_path_rx(p) for p in LEGACY_USER]
     return [p for p in paths if os.path.basename(p) != "README.md" and any(rx.match(p) for rx in pats)]
 
 

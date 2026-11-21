@@ -3,7 +3,7 @@ level: L3
 about: >-
   A repeatable task arrives on the vanilla harness. With no workflows, it must escalate and offer customize-harness,
   and change nothing.
-content: null                 # vanilla, no test content
+
 fixture: textkit
 task: Add a `reverse(text)` helper to textkit.
 owner:

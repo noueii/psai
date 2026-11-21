@@ -5,7 +5,7 @@ Usage:
   graph.py <root> --mermaid <workflow>     print Mermaid for workflows/<workflow>.yaml
   graph.py <root> --svg <workflow>         print a static SVG
   graph.py <root> --update-readme          refresh embedded diagrams; write <root>/workflows/GRAPHS.md with one
-                                           block per workflow (a user-owned file, so forks never conflict)
+                                           block per workflow (a stack's own file)
   graph.py <root> --check-readme           exit 1 if any embedded diagram is missing or stale
 
 A block is <!-- graph:<path-to-workflow.yaml>:start --> ... <!-- graph:<path>:end -->, with the path relative to the

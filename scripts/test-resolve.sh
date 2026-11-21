@@ -3,7 +3,7 @@
 # No AI, no network, never the real HOME. Prints "  ok   ..." / "  FAIL ..." lines (check.sh runs it).
 set -uo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd -P)"
-FIX="$ROOT/evals/fixtures/harness-content"; FS="$ROOT/evals/fixtures/stacks"
+FIX="$ROOT/evals/fixtures/stacks/example"; FS="$ROOT/evals/fixtures/stacks"
 fails=0
 pass() { echo "  ok   $*"; }
 fail() { echo "  FAIL $*"; fails=$((fails + 1)); }

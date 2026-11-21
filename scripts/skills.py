@@ -138,8 +138,9 @@ def validate_config(root):
             errs.append(f"my-skills/{n}: name {fm.get('name')!r} != folder")
         if not fm.get("description"):
             errs.append(f"my-skills/{n}: description missing")
-        if os.path.isdir(os.path.join(root, "skills", n)):
-            errs.append(f"my-skills/{n}: clashes with psai's skills/{n} (prefix yours, e.g. my-{n})")
+        fw = os.path.join(os.path.dirname(os.path.dirname(os.path.realpath(__file__))), "skills")
+        if os.path.isdir(os.path.join(root, "skills", n)) or os.path.isdir(os.path.join(fw, n)):
+            errs.append(f"my-skills/{n}: {n} is reserved by psai's skills/{n} (prefix yours, e.g. my-{n})")
     return errs
 
 
@@ -305,26 +306,49 @@ def check(root, home=None, project=None):
 
 
 def brief(root, files, shown=None, home=None, project=None):
-    """(text, missing_required, missing_optional) for a role agent's brief: role file first, then the step."""
+    """(text, missing_required, missing_optional) for a role agent's brief: role file first, then the step. Each name
+    resolves from the stack of the file that lists it (psai resolve: framework, overlay, that stack, its requires,
+    then any stack that exports it), so a role always gets its own stack's copy; a skill only the tools have
+    (unmanaged, or the project's) comes from the registry."""
+    import resolve  # noqa: PLC0415
     shown = shown or root
-    req, opt = [], []
+    h = resolve.Home(root)
+    roots = sorted(((os.path.realpath(st.path), st.name) for st in h.content_stacks()), key=lambda x: -len(x[0]))
+
+    def stack_of(f):
+        rf = os.path.realpath(f)
+        ov = os.path.realpath(os.path.join(h.overlay_path, "overrides"))
+        if _under(rf, ov):  # an override: it belongs to the stack it overrides
+            return os.path.relpath(rf, ov).split(os.sep)[0]
+        return next((n for r, n in roots if _under(rf, r)), resolve.OVERLAY)
+
+    req, opt, frm = [], [], {}
     for f in files:
         r, o, _ = role_skills(f)
+        for x in r + o:
+            frm.setdefault(x, stack_of(f))
         req += [x for x in r if x not in req]
         opt += [x for x in o if x not in opt]
     opt = [x for x in opt if x not in req]
-    idx = registry(root, home, project)
+    idx = None
     have, miss_r, miss_o = [], [], []
     real_root = os.path.realpath(root)
     for n in req + opt:
-        s = idx.get(n)
-        if not s:
-            (miss_r if n in req else miss_o).append(n)
+        md, why = None, ""
+        try:
+            md = resolve.resolve("skill", n, frm=frm[n], h=h)
+        except resolve.ResolveError as e:
+            if e.code == resolve.AMBIGUOUS:
+                why = f" ({e.msg})"
+            else:
+                idx = idx if idx is not None else registry(root, home, project)
+                md = (idx.get(n) or {}).get("skill_md")
+        if not md:
+            (miss_r if n in req else miss_o).append(n + why)
             continue
-        md = s["skill_md"] or ""
-        if md and _under(os.path.realpath(md), real_root):
+        if _under(os.path.realpath(md), real_root) and h.compat:
             md = os.path.join(shown, os.path.relpath(os.path.realpath(md), real_root))
-        have.append(f"{n} ({use_when(s['description']) or 'no description'}; {md})")
+        have.append(f"{n} ({use_when(_fm(md).get('description')) or 'no description'}; {md})")
     lines = []
     if have:
         lines.append("Your skills: " + "; ".join(have) + ". Invoke each by name when it applies, or read its SKILL.md.")
@@ -381,11 +405,19 @@ def _insert_entry(path, entry):
         raise RuntimeError("could not add the entry to skills.yaml; add it by hand")
 
 
-def adopt(root, name, home=None, dry=False, ref=None):
+def adopt(root, name, home=None, dry=False, ref=None, to=None):
     """Bring an unmanaged skill under psai: the user's own moves into my-skills/, a pack's becomes a pinned
     skills.yaml entry. Returns an exit code; install.sh links the result afterwards."""
     home = home or _home()
     say = (lambda m: print("would: " + m)) if dry else print
+    if to:  # into a stack you author (a dev stack) instead of your overlay
+        import resolve  # noqa: PLC0415
+        st = resolve.Home(root).get(to)
+        if st is None or (st.mode not in ("dev", "overlay")):
+            print(f"adopt: --to takes your overlay or a dev stack (one you author); {to} is "
+                  f"{'not installed' if st is None else st.mode}", file=sys.stderr)
+            return 1
+        root = st.path
     cfg = config(root)
     if name in cfg["ignore"]:
         print(f"adopt: {name} is on skills.yaml's ignore list (another tool manages it); not adopting", file=sys.stderr)
@@ -471,6 +503,7 @@ def main(argv):
     ap.add_argument("--unmanaged", action="store_true", help="list: only unmanaged skills")
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--ref", default=None, help="adopt: pin to this ref instead of the source's HEAD")
+    ap.add_argument("--to", default=None, help="adopt: into this dev stack (one you author) instead of your overlay")
     a = ap.parse_intermixed_args(argv)
     import resolve  # noqa: PLC0415
     root = resolve.Home(a.root or _default_root()).overlay_path  # the user's skills and skills.yaml live in the overlay
@@ -490,7 +523,7 @@ def main(argv):
         if os.environ.get("PSAI_EVAL") and not a.dry_run:
             print("psai: eval run: adopt never moves skills out of the real HOME", file=sys.stderr)
             return 1
-        return adopt(root, a.args[0], dry=a.dry_run, ref=a.ref)
+        return adopt(root, a.args[0], dry=a.dry_run, ref=a.ref, to=a.to)
     if a.cmd == "brief":
         if not a.args:
             ap.error("brief takes the role file (and the step file)")
@@ -520,7 +553,8 @@ def main(argv):
     for n, s in sorted(idx.items()):
         flags = [f for f in ("unmanaged", "duplicate", "ignored") if s[f]]
         where = ", ".join(dict.fromkeys(loc["where"] for loc in s["locations"]))
-        print(f"{n:32} {','.join(s['tools']) or '-':24} {where}" + (f"  [{' '.join(flags)}]" if flags else ""))
+        stk = ",".join(dict.fromkeys(loc["stack"] for loc in s["locations"] if loc.get("stack"))) or "-"
+        print(f"{n:32} {stk:16} {','.join(s['tools']) or '-':24} {where}" + (f"  [{' '.join(flags)}]" if flags else ""))
     return 0
 
 

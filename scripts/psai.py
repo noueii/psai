@@ -7,7 +7,7 @@
   psai doctor                             status, plus per tool: version, plugin loaded, skills missing or unmanaged
   psai sync [run|check|update|drift|baseline|stage|pr|migrate]   see scripts/sync.py (the sync skill drives it)
   psai retro [gather|finish]              see scripts/retro.py (the retro skill drives it)
-  psai adopt <skill>                      install.sh --adopt <skill>
+  psai adopt <skill> [--to <dev stack>]   bring an unmanaged skill into your overlay (or a stack you author)
   psai skills [list|check|brief|...]      the live skill registry
   psai ledger [list|show|...]             the local session ledger
   psai check [args]                       scripts/check.sh
@@ -158,8 +158,9 @@ def main(argv):
     py = [sys.executable]
     if cmd == "install":
         return run(["bash", os.path.join(REPO, "install.sh"), *rest])
-    if cmd == "adopt":
-        return run(["bash", os.path.join(REPO, "install.sh"), "--adopt", *rest])
+    if cmd == "adopt":  # into your overlay, or --to <dev stack>; then relink
+        rc = run(py + [os.path.join(HERE, "harness.py"), "skills", "adopt", *rest])
+        return rc if rc or "--dry-run" in rest else run(["bash", os.path.join(REPO, "install.sh"), "--relink"])
     if cmd == "update":
         return sync.main(["update", *rest])
     if cmd == "sync":

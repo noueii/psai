@@ -41,7 +41,7 @@ Name them in the file's frontmatter, `skills: {required: [...], optional: [...]}
 3. Doesn't exist: write it with the owner in `my-skills/<name>/SKILL.md`, one question at a time.
 4. Only for one repo: `<repo>/.agents/skills/<name>/`, linked from `<repo>/.claude/skills/<name>`, and listed as optional.
 
-Unmanaged skills (`psai skills --unmanaged`): offer to adopt one with `psai adopt <name>` (it moves the skill into the live `my-skills/` or `skills.yaml`, which the retro's PR carries). Then run `psai check --quick`.
+Unmanaged skills (`psai skills --unmanaged`): offer to adopt one with `psai adopt <name>` (it moves the skill into your overlay's `my-skills/` or `skills.yaml`, which the retro's PR carries; `--to <stack>` adopts it into a stack you author instead). Then run `psai check --quick`.
 
 ## Build
 1. In the stage worktree, write the files per LAYOUT.md, using the formats in each folder's README.md. For a role, also create `knowledge/roles/<role>/INDEX.md` and `inbox.md`.

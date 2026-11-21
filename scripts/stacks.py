@@ -16,7 +16,8 @@ The home ($PSAI_HOME, else ~/.psai):
   psai stack add <src> [--ref <tag|commit>] [--as <name>] [--dev] [--yes]   src: github:o/r, a git URL or a path
   psai stack remove <name> [--force]       unlink its skills, remove the clone (a dev link only), keep its overrides
   psai stack update [<name>] [--to <ref>]  move pins to the newest release in range; dev stacks: fast-forward only
-  psai stack list [--json]                 name, version, ref, mode, priority, workflows, overrides, warnings
+  psai stack list [--skills] [--json]      name, version, ref, mode, priority, workflows, overrides, warnings;
+                                           --skills: which copy of each skill the tools see
   psai stack sync                          install everything stacks.yaml lists (a new machine)
   psai stack diff <name> [<path>]          the change since the pin, or an override against its original
   psai stack override <stack>:<path> [--in <dir>]   copy a file into overrides/ (records .base.yaml) to change it
@@ -137,31 +138,53 @@ def migrate_fork(home, clone, dry=False):
     return 0
 
 
+def ranked_stacks(h):
+    """The installed stacks by routing priority (the overlay's `priority:` wins over a stack's own), then their
+    stacks.yaml order: who gets a skill's bare name in the tools' folders after the overlay."""
+    import index  # noqa: PLC0415
+    over = index.settings(h)["priority"]
+    return sorted(h.stacks, key=lambda st: (-int(over.get(st.name, st.priority)), st.order))
+
+
+def skill_candidates(home):
+    """{name: [(stack, link target, what)]}, the copy the tools see first (ADR 0011, section 9.2): the framework's
+    (its names are reserved), then the overlay's (my-skills/, then its skills.yaml packs), then each stack's by
+    priority. Every target goes through the home path (framework/, overlay/, stacks/, state/)."""
+    h = res.Home(home)
+    _, dirs, packs_ = skillreg.sources(home)
+    pk = {stack: (sroot, cache) for stack, sroot, cache in packs_}
+    my = {stack: d for stack, _k, _l, d in dirs}
+    order = ["psai", res.OVERLAY] + [st.name for st in ranked_stacks(h)]
+    out = {}
+    for stack in order:
+        if stack in my:
+            for n, _p in skillreg._entries(my[stack]):
+                out.setdefault(n, []).append((stack, os.path.join(my[stack], n),
+                                              "psai's skills/" if stack == "psai" else f"{stack}:my-skills/"))
+        if stack in pk:
+            sroot, cache = pk[stack]
+            for e in skillreg.config(sroot)["skills"]:
+                if not isinstance(e, dict) or not e.get("name"):
+                    continue
+                p = os.path.normpath(os.path.join(cache, e["name"], str(e.get("path") or ".").strip("/")))
+                if os.path.isfile(os.path.join(p, "SKILL.md")):
+                    out.setdefault(e["name"], []).append((stack, p, f"{stack}:skills.yaml"))
+    return out
+
+
 def skill_sources(home):
-    """(name, link target) for every skill psai links, through the home path: the framework's skills/, the overlay's
-    my-skills/, each stack's my-skills/, then the fetched skills.yaml packs. The first name wins; clashes go to stderr
-    (ADR 0011, section 9.2: PR 7 sharpens who wins)."""
-    out, seen = [], {}
-
-    def add(name, target, what):
-        if name in seen:
-            print(f"skip: {what} {name} clashes with {seen[name]}; rename one of them", file=sys.stderr)
-            return
-        seen[name] = what
-        out.append((name, target))
-
-    _, dirs, packs = skillreg.sources(home)  # paths through the home (framework/, overlay/, stacks/, state/)
-    for stack, kind, label, d in dirs:
-        for n, _p in skillreg._entries(d):
-            add(n, os.path.join(d, n), f"{'psai skills' if stack == 'psai' else label}")
-    for stack, sroot, cache in packs:
-        for e in skillreg.config(sroot)["skills"]:
-            if not isinstance(e, dict) or not e.get("name"):
-                continue
-            path = str(e.get("path") or ".").strip("/")
-            p = os.path.normpath(os.path.join(cache, e["name"], path))
-            if os.path.isfile(os.path.join(p, "SKILL.md")):
-                add(e["name"], p, f"{stack}:skills.yaml entry")
+    """(name, link target) for every skill psai links into the tools' flat folders: one copy per name, the first in
+    skill_candidates' order. The others aren't linked bare (roles still get their own stack's copy through the skills
+    brief, which gives the SKILL.md path); each clash is reported on stderr."""
+    out = []
+    for n, cands in sorted(skill_candidates(home).items()):
+        out.append((n, cands[0][1]))
+        for stack, _t, what in cands[1:]:
+            if cands[0][0] == "psai":
+                print(f"skip: {what}{n} uses a name psai reserves; rename it (e.g. {stack}-{n})", file=sys.stderr)
+            else:
+                print(f"skip: {what}{n}: the tools see {cands[0][2]}{n} under this name; roles of {stack} still "
+                      "get theirs", file=sys.stderr)
     return out
 
 
@@ -453,6 +476,20 @@ def update(name=None, to=None, h=None):
     return 0
 
 
+def skills_listing(h=None, as_json=False):
+    """Which copy of each skill the tools see under its bare name, and the copies they don't (ADR 0011, 9.2)."""
+    h = h or res.Home()
+    rows = [{"name": n, "tools_see": c[0][0], "path": c[0][1], "hidden": [x[0] for x in c[1:]]}
+            for n, c in sorted(skill_candidates(h.root).items())]
+    if as_json:
+        print(json.dumps(rows, indent=1))
+        return 0
+    for r in rows:
+        print(f"{r['name']:32} tools see {r['tools_see']}" + (f"; not linked bare: {', '.join(r['hidden'])} "
+                                                              "(their roles still get their own copy)" if r["hidden"] else ""))
+    return 0
+
+
 def listing(h=None, as_json=False):
     h = h or res.Home()
     rows = []
@@ -674,6 +711,11 @@ def check_stack(name, h=None):
             print(f"  FAIL {name}: {e}")
         n = len(overrides_of(h, name)) if name != res.OVERLAY else 0
         print(f"  {'ok  ' if not errs else 'FAIL'} {name}: content and refs" + (f" ({n} override(s) in place)" if n else ""))
+        if name != res.OVERLAY:  # the tools' skill folders are flat: unprefixed names collide across stacks
+            for sk, _p in skillreg._entries(os.path.join(d, "my-skills")):
+                if not sk.startswith(f"{name}-"):
+                    print(f"  warn {name}: my-skills/{sk}: prefix your skill names ({name}-{sk}) so they don't "
+                          "collide with other stacks' in the tools' flat folders")
         rc = simulate.main(d)
     return 1 if errs or rc else 0
 
@@ -695,6 +737,7 @@ def stack_main(argv):
     u_.add_argument("--to", help="a tag or a commit")
     l_ = sub.add_parser("list", help="the installed stacks")
     l_.add_argument("--json", action="store_true")
+    l_.add_argument("--skills", action="store_true", help="which copy of each skill the tools see")
     sub.add_parser("sync", help="install everything stacks.yaml lists (a new machine)")
     o_ = sub.add_parser("override", help="copy a stack's file into your overlay's overrides/ to change it there")
     o_.add_argument("ref", help="<stack>:<path>, e.g. acme:roles/reviewer.md")
@@ -713,7 +756,7 @@ def stack_main(argv):
         if a.cmd == "update":
             return update(a.name, a.to)
         if a.cmd == "list":
-            return listing(as_json=a.json)
+            return skills_listing(as_json=a.json) if a.skills else listing(as_json=a.json)
         if a.cmd == "sync":
             return sync_all()
         if a.cmd == "override":

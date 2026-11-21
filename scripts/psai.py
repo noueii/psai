@@ -12,6 +12,8 @@
   psai ledger [list|show|...]             the local session ledger
   psai check [args]                       scripts/check.sh
   psai stack add|remove|update|list|sync|diff ...   install and manage stacks (scripts/stacks.py)
+  psai resolve model <stack>:<role> [--tool T]   the role's model for a tool (scripts/models.py)
+  psai setup models [--set <tool>.<tier>=<id>]  write your overlay's tier map (fast | balanced | strong per tool)
   psai resolve [kind] <ref> [--from S] [--all] [--json] [--write]   find content by name (scripts/resolve.py)
   psai context | role-context [home] [shown]   the injected nudge (harness.py context)
   psai graph | simulate [<stack>|<path>] [args]   graph.py, simulate.py (a stack name or folder; default the home)
@@ -171,9 +173,15 @@ def main(argv):
     if cmd == "stack":
         import stacks  # noqa: PLC0415
         return stacks.stack_main(rest)
+    if cmd == "resolve" and rest[:1] == ["model"]:
+        import models  # noqa: PLC0415
+        return models.main(rest[1:])
     if cmd == "resolve":
         import resolve  # noqa: PLC0415
         return resolve.main(rest)
+    if cmd == "setup":
+        import models  # noqa: PLC0415
+        return models.setup_main(rest)
     if cmd == "ledger":
         return ledger.main(rest)
     if cmd == "skills":

@@ -169,7 +169,7 @@ class Claude:
              "--setting-sources", "project", "--no-session-persistence", "--strict-mcp-config",
              "--permission-mode", "bypassPermissions", "--add-dir", h, "--add-dir", env["PSAI_HOME"], "--model", model, "--max-budget-usd", str(budget)],
             cwd=cwd, env=env, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
-        self.texts, self.sub_calls, self.cost = [], [], 0.0
+        self.texts, self.sub_calls, self.agent_calls, self.cost = [], [], [], 0.0
         self.raw = open(os.path.join(os.path.dirname(h), "stream.jsonl"), "a")
 
     def turn(self, message):
@@ -198,6 +198,8 @@ class Claude:
                 self.texts.append(c["text"])
             elif c.get("type") == "tool_use":  # agents often print [harness] lines with echo
                 self.texts.append(json.dumps(c.get("input", {})).replace("\\n", "\n"))
+                if c.get("name") in ("Agent", "Task"):  # role agents started by the main agent (role_model)
+                    self.agent_calls.append(c.get("input", {}))
 
     def _drain(self, result, idle=120):
         """If background agents are still running, the session continues on its own: keep reading until idle."""
@@ -331,7 +333,7 @@ def run_phase(tool, phase, h, w, base, model, budget, home=None):
         agent.close()
     text = "\n".join(agent.texts)
     log.update(seconds=round(time.time() - t0), cost=round(agent.cost, 4), final=final, text=text,
-               sub_calls=getattr(agent, "sub_calls", None),
+               sub_calls=getattr(agent, "sub_calls", None), agent_calls=getattr(agent, "agent_calls", None),
                path=re.findall(r"\[harness\] node: ([A-Za-z0-9_-]+)", text), cwd=cwd)
     return log
 

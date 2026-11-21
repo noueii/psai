@@ -138,6 +138,9 @@ def validate(root, h=None):
             if f.endswith(".md") and f != "README.md":
                 fm = check_reads(os.path.join(dd, f))
                 errs += [f"{d}/{f}: {e}" for e in skillreg.role_skills(os.path.join(dd, f))[2]]
+                if d == "roles" and "model" in fm:
+                    import models  # noqa: PLC0415
+                    errs += [f"roles/{f}: {e}" for e in models.validate(fm["model"])]
                 if d == "roles" and fm.get("may_change") not in MAY_CHANGE:
                     errs.append(f"roles/{f}: may_change must be one of {', '.join(MAY_CHANGE)}")
                 if d == "roles" and not exists(f"knowledge/roles/{f[:-3]}/INDEX.md"):

@@ -171,6 +171,13 @@ def validate_stack(meta, overlay=False):
         errs.append(f"stack.yaml: the overlay's name must be {OVERLAY}")
     if not overlay and name in RESERVED:
         errs.append(f"stack.yaml: name {name!r} is reserved (psai, nostack)")
+    import models  # noqa: PLC0415
+    m = meta.get("models") or {}
+    if isinstance(m, dict):
+        if "default" in m:
+            errs += models.validate(m["default"], "stack.yaml.models.default")
+        for k, v in (m.get("roles") or {}).items():
+            errs += models.validate(v, f"stack.yaml.models.roles.{k}")
     if not overlay:
         for k in ("disable", "prefer", "priority"):
             if k in meta:

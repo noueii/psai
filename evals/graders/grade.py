@@ -28,6 +28,7 @@ expect keys (all optional):
   router_invoked          the agent used the request-router skill (Skill tool or reading its SKILL.md)
   no_workflow             no workflow node was entered
   role_used_skill <name>  a role agent (subagent) invoked the skill or read its SKILL.md (Claude Code)
+  role_model {role: id}   the agent started that role's subagent with that model (Claude Code: the Agent tool's model)
   work_files [paths]      exist in the work repo
   answer_mentions [words] the final message mentions each (case-insensitive)
   roles_no_route          role agents (subagents) never invoked request-router or work, nor ran trace.sh, and the
@@ -147,6 +148,14 @@ def grade(expect, log, ctx):
             runs = sum(t.startswith("workflow ") for t in phase)
             add("role agents did not route", calls and not bad and runs == 1,
                 f"{len(calls)} subagent tool calls, {len(bad)} routing: {'; '.join(bad)[:300]}; workflow runs in trace: {runs}")
+    for role, mid in (expect.get("role_model") or {}).items():
+        calls = log.get("agent_calls")
+        if calls is None:
+            add(f"{role} delegated with model {mid}", True, "skipped: this tool's driver doesn't record agent calls")
+            continue
+        mine = [c for c in calls if role in f"{c.get('description', '')} {c.get('prompt', '')}"[:400]]
+        add(f"{role} delegated with model {mid}", any(c.get("model") == mid for c in mine),
+            "; ".join(f"{c.get('description')}: model={c.get('model')}" for c in mine)[:300] or "no agent call for the role")
     if expect.get("role_used_skill"):
         n, calls = expect["role_used_skill"], log.get("sub_calls")
         if calls is None:

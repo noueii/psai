@@ -113,6 +113,8 @@ def node(wf_ref, nid, h=None):
         text, miss_r, _ = skillreg.brief(h.overlay_path, [b["path"]] + ([step] if step else []),
                                          project=skillreg.project_root())
         out += ["  " + line for line in text.splitlines()]
+        import models  # noqa: PLC0415
+        out.append("  " + models.node_line(str(n["role"]), stack, h))
         rc = 3 if miss_r else 0
         out.append(f"  after it returns: psai check-diff {wf_ref} {nid} \"$base\"")
     if n.get("human"):

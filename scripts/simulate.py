@@ -98,7 +98,7 @@ def main(root, verbose=False):
             print(f"  {'ok  ' if ok else 'FAIL'} {name}: {case['name']}" + (f"\n         {msg}" if verbose or not ok else ""))
             fails += not ok
     rc = os.path.join(wdir, "ROUTING.cases.yaml")
-    if os.path.exists(rc):
+    if os.path.exists(rc) and os.path.exists(os.path.join(wdir, "ROUTING.yaml")):
         tree = harness.load(os.path.join(wdir, "ROUTING.yaml"))["tree"]
         for case in harness.load(rc) or []:
             total += 1

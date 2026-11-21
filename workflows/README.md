@@ -1,23 +1,26 @@
 # workflows/
 
-The owner's workflows, one state machine per file, plus `ROUTING.yaml`, which picks one for each task. Vanilla ships with no workflows: `work` escalates and offers `customize-harness`. Example: [evals/fixtures/harness-content/workflows/coding.yaml](../evals/fixtures/harness-content/workflows/coding.yaml).
+The owner's workflows, one state machine per file, plus `ROUTING.yaml`, which picks one for each task. Vanilla ships with no workflows: `work` escalates and offers `customize-harness`. Example: [evals/fixtures/harness-content/workflows/example.yaml](../evals/fixtures/harness-content/workflows/example.yaml). Your diagrams are generated into `GRAPHS.md`.
 
 ## `<name>.yaml`
 ```yaml
-name: coding
-when: A task that changes code, docs or config.   # what the workflow is for
-start: clarify
+name: example
+when: Any task that changes files in a repo.     # what the workflow is for
+start: do
 defaults: { max: 2, on_exhaust: escalate }       # limit for automatic loops back
 nodes:
-  clarify:
-    step: steps/clarify.md                       # required, except on special nodes
+  do:
+    step: steps/do.md                            # required, except on special nodes
+    role: doer                                   # optional: run by a fresh role agent
     next:                                        # checked in order; first match wins
-      - { when: blocking question, to: escalate }
-      - { to: implement }                        # the last edge is the default
-  implement:
-    step: steps/implement.md
-    role: engineer                               # optional: run by a fresh role agent
-    next: [{ to: ready }]
+      - { when: blocked, to: escalate }
+      - { to: check }                            # the last edge is the default
+  check:
+    step: steps/check.md
+    role: checker
+    next:
+      - { when: changes needed, to: do }         # a loop back: limited by defaults.max
+      - { when: done, to: ready }
   escalate: { return: caller }                   # special: answer resumes the asker
   ready: { terminal: true }                      # special: the end
 ```
@@ -35,12 +38,12 @@ nodes:
 ## `<name>.cases.yaml`
 Scripted runs for `scripts/simulate.py`:
 ```yaml
-- name: verify fails 3x escalates
-  take: { verify: [fail, fail, fail] }   # per node, the edge `when` taken on each visit; unscripted = default
+- name: the check loop is limited
+  take: { check: [changes needed, changes needed, changes needed] }   # per node, the edge taken on each visit; unscripted = default
   ends: escalate                          # or ready, or handoff:<wf>
-  asker: verify                           # optional: which node escalated
-  path: [clarify, implement, verify, implement, verify, implement, verify, escalate]   # optional: exact path
+  asker: check                            # optional: which node escalated
+  path: [do, check, do, check, do, check, escalate]   # optional: exact path
 ```
 
 ## `ROUTING.yaml`
-A decision tree. Each node is `{ ask, answers: [{ if, then }] }`, `{ workflow: <name> }` or `{ escalate: <reason> }`. No match: escalate. Example: [evals/fixtures/harness-content/workflows/ROUTING.yaml](../evals/fixtures/harness-content/workflows/ROUTING.yaml). Routing cases go in `ROUTING.cases.yaml`: `- { name, answers: [yes, ...], workflow: <name> }` or `escalate: true`.
+A decision tree, created with your first workflow; vanilla has none, so every task escalates. Each node is `{ ask, answers: [{ if, then }] }`, `{ workflow: <name> }` or `{ escalate: <reason> }`. No match: escalate. Example: [evals/fixtures/harness-content/workflows/ROUTING.yaml](../evals/fixtures/harness-content/workflows/ROUTING.yaml). Routing cases go in `ROUTING.cases.yaml`: `- { name, answers: [yes, ...], workflow: <name> }` or `escalate: true`.

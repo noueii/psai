@@ -7,6 +7,7 @@ set -euo pipefail
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 H="$HOME/.harness"
 IMPORT='@~/.harness/instructions/global.md'
+OWNER_IMPORT='@~/.harness/instructions/owner.md'   # the fork owner's own rules, if the file exists
 START='<!-- harness:start -->'
 END='<!-- harness:end -->'
 CFG="${XDG_CONFIG_HOME:-$HOME/.config}"
@@ -76,23 +77,28 @@ finish_removal() {
 TMP="$(mktemp)"
 trap 'rm -f "$TMP"' EXIT
 
+# Our import lines: global.md always, owner.md when the fork has one.
+wanted_imports() { echo "$IMPORT"; [ -f "$REPO/instructions/owner.md" ] && echo "$OWNER_IMPORT"; return 0; }
+
 add_import() {
-  local f="$1"
-  if [ -e "$f" ] && grep -Fxq "$IMPORT" "$f"; then return; fi
+  local f="$1" have want
+  have="$( [ -e "$f" ] && grep -Fx -e "$IMPORT" -e "$OWNER_IMPORT" "$f" || true)"
+  want="$(wanted_imports)"
+  [ "$have" = "$want" ] && return
   if [ -s "$f" ]; then
-    cat "$f" > "$TMP"
-    [ -n "$(tail -c 1 "$f")" ] && echo >> "$TMP"
+    grep -Fxv -e "$IMPORT" -e "$OWNER_IMPORT" "$f" > "$TMP" || true
+    [ -s "$TMP" ] && [ -n "$(tail -c 1 "$TMP")" ] && echo >> "$TMP"
   else
     : > "$TMP"
   fi
-  echo "$IMPORT" >> "$TMP"
+  echo "$want" >> "$TMP"
   write_if_changed "$f" "$TMP"
 }
 
 remove_import() {
   local f="$1"
-  [ -e "$f" ] && grep -Fxq "$IMPORT" "$f" || return 0
-  grep -Fxv "$IMPORT" "$f" > "$TMP" || true
+  [ -e "$f" ] && grep -Fxq -e "$IMPORT" -e "$OWNER_IMPORT" "$f" || return 0
+  grep -Fxv -e "$IMPORT" -e "$OWNER_IMPORT" "$f" > "$TMP" || true
   finish_removal "$f" "$TMP"
 }
 
@@ -112,7 +118,9 @@ upsert_block() {
   local f="$1"
   if [ -e "$f" ]; then strip_block "$f" > "$TMP"; else : > "$TMP"; fi
   [ -s "$TMP" ] && echo >> "$TMP"
-  { echo "$START"; cat "$REPO/instructions/global.md"; echo "$END"; } >> "$TMP"
+  { echo "$START"; cat "$REPO/instructions/global.md"
+    [ -f "$REPO/instructions/owner.md" ] && { echo; cat "$REPO/instructions/owner.md"; }
+    echo "$END"; } >> "$TMP"
   write_if_changed "$f" "$TMP"
 }
 

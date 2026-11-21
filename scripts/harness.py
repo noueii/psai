@@ -180,7 +180,8 @@ def validate(root):
 
     rpath = os.path.join(root, "workflows", "ROUTING.yaml")
     if not os.path.exists(rpath):
-        errs.append("workflows/ROUTING.yaml missing")
+        if names:
+            errs.append("workflows/ROUTING.yaml missing, but there are workflows")
     else:
         r = load(rpath) or {}
         if "tree" not in r:
@@ -208,6 +209,25 @@ def layout_patterns(layout_md):
             rx = re.sub(r"<[^>]+>", "[^/]+", p.replace(".", r"\."))
             pats.append(re.compile("^" + rx + "$"))
     return pats
+
+
+def owner_patterns(layout_md, owner="you"):
+    """Regexes for the paths LAYOUT.md gives to `owner` (you = the fork's user, upstream = psai)."""
+    pats = []
+    for line in open(layout_md):
+        cells = [c.strip() for c in line.strip().strip("|").split("|")]
+        if len(cells) < 4 or cells[3] != owner:
+            continue
+        for p in re.findall(r"`([^`]+)`", cells[1]):
+            if not p.startswith("<repo>"):
+                pats.append(re.compile("^" + re.sub(r"<[^>]+>", "[^/]+", p.replace(".", r"\.")) + "$"))
+    return pats
+
+
+def user_files(root, layout_md, paths):
+    """The subset of `paths` (relative to root) that LAYOUT.md gives to the user."""
+    pats = owner_patterns(layout_md)
+    return [p for p in paths if os.path.basename(p) != "README.md" and any(rx.match(p) for rx in pats)]
 
 
 def check_layout(root, layout_md, dirs=("workflows", "steps", "roles", "guides", "templates", "knowledge")):

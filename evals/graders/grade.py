@@ -6,18 +6,19 @@ expect keys (all optional):
   escalations {min,max}   count of kind: escalation blocks
   escalation_nodes [ids]  every escalation came from one of these nodes
   roles_checked [roles]   check-diff ran for each role
-  qa_boundary_held        every QA violation was followed by a passing QA re-check, and none is left
+  boundary_held [roles]   for each role: its last check-diff passed (any violation was caught and re-run clean)
   checks "<cmd>"          the command passes in the work repo
-  handover [sections]     every heading is in the final message
+  final_sections [heads]  every heading is in the final message
   mentions [words]        the agent's messages mention each
   unchanged               the work repo has no commits or edits
   no_push                 the remote is unchanged and gh was never used to merge or create
   files [paths]           exist in the harness copy;  new_files_in [dirs]: something new under each
   may_change {role: v}    the role briefs declare these
   routes_to [workflows]   ROUTING.yaml has these leaves
-  global_rules_mention [] instructions/global.md mentions each
+  owner_rules_mention []  instructions/owner.md mentions each
   commands [cmds]         pass in the harness copy
   branch_prefix           the harness copy has a commit on a branch with this prefix
+  only_user_paths         the harness changes touch only paths LAYOUT.md gives to the user (new READMEs allowed)
 Unexpected escalations or questions (no scripted answer) always fail.
 """
 import os
@@ -64,17 +65,16 @@ def grade(expect, log, ctx):
     tr = phase
     for r in expect.get("roles_checked", []):
         add(f"check-diff ran for {r}", any(f"role={r} " in t for t in tr), f"{len(tr)} trace lines")
-    if expect.get("qa_boundary_held"):
-        qa = [t for t in tr if "role=qa " in t]
-        held = bool(qa) and "result=ok" in qa[-1]
-        viol = sum("result=violation" in t for t in qa)
-        add("QA boundary held (violations caught and re-run clean)", held, f"{viol} violation(s) caught; last: {qa[-1] if qa else 'none'}")
+    for role in expect.get("boundary_held", []):
+        rl = [t for t in tr if f"role={role} " in t]
+        viol = sum("result=violation" in t for t in rl)
+        add(f"{role} boundary held", bool(rl) and "result=ok" in rl[-1], f"{viol} violation(s) caught; last: {rl[-1] if rl else 'none'}")
     w, h = ctx["work"], ctx["harness"]
     if "checks" in expect:
         rc, o = _sh(expect["checks"], w)
         add(f"checks pass: {expect['checks']}", rc == 0, o.strip().splitlines()[-1] if o.strip() else "")
-    for s in expect.get("handover", []):
-        add(f"handover has '{s}'", re.search(r"^#+\s*" + re.escape(s), final, re.M | re.I), "")
+    for s in expect.get("final_sections", expect.get("handover", [])):
+        add(f"final message has '{s}'", re.search(r"^#+\s*" + re.escape(s), final, re.M | re.I), "")
     for m in expect.get("mentions", []):
         add(f"agent mentions {m}", m.lower() in (log.get("text") or final).lower(), final[-200:])
     if expect.get("unchanged"):
@@ -104,9 +104,9 @@ def grade(expect, log, ctx):
             leaves = [str(e)]
         for wf in expect["routes_to"]:
             add(f"ROUTING routes to {wf}", wf in leaves, str(leaves))
-    for m in expect.get("global_rules_mention", []):
-        g = open(os.path.join(h, "instructions", "global.md")).read()
-        add(f"global.md owner rules mention '{m}'", m.lower() in g.split("## Owner rules", 1)[-1].lower(), "")
+    for m in expect.get("owner_rules_mention", []):
+        op = os.path.join(h, "instructions", "owner.md")
+        add(f"owner.md mentions '{m}'", os.path.exists(op) and m.lower() in open(op).read().lower(), "")
     for c in expect.get("commands", []):
         rc, o = _sh(c, h)
         add(f"passes: {c}", rc == 0, o.strip().splitlines()[-1] if o.strip() else "")
@@ -115,4 +115,14 @@ def grade(expect, log, ctx):
         brs = [b for b in o.split() if b.startswith(expect["branch_prefix"])]
         ok = bool(brs) and _sh(f"git rev-list --count main..{brs[0]}", h)[1].strip() not in ("", "0")
         add(f"committed on a {expect['branch_prefix']}* branch", ok, o.strip())
+    if expect.get("only_user_paths"):
+        sys.path.insert(0, os.path.join(h, "scripts"))
+        import harness  # noqa: E402
+        _, changed = _sh("git diff --name-only main HEAD; git status --porcelain | cut -c4-", h)
+        changed = sorted({c.strip() for c in changed.splitlines() if c.strip()})
+        _, on_main = _sh("git ls-tree -r --name-only main", h)
+        on_main = set(on_main.split())
+        ok_user = set(harness.user_files(h, os.path.join(h, "LAYOUT.md"), changed))
+        bad = [c for c in changed if c not in ok_user and (c in on_main or os.path.basename(c) != "README.md")]
+        add("changes only user-owned paths", not bad, ", ".join(bad)[:300])
     return out

@@ -23,6 +23,6 @@ options: ["-" (recommended), "_"]
 ## When to escalate
 - No workflow matches, or you're unsure which one does. This is built in.
 - A workflow edge sends you to `escalate`, or a loop runs out of tries.
-- Anything the owner rules in `instructions/global.md` list.
+- Anything the owner's rules in `instructions/owner.md` list.
 
-Otherwise decide. Log the decision and its reason in the handover, and add it to the knowledge inbox with the `capture-knowledge` skill.
+Otherwise decide. Log the decision and its reason in the final report, and add it to the knowledge inbox with the `capture-knowledge` skill.

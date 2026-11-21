@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # Validate the harness (L0), its installer against temp HOMEs (L1) and its workflows by simulation (L2).
 # Never touches the real HOME.
-# Usage: scripts/check.sh [--quick] [--discover] [<extra-root>...]
+# Usage: scripts/check.sh [--quick] [--discover] [--upstream] [<extra-root>...]
 #   --quick     skip the installer tests (what customize-harness runs while editing)
 #   --discover  also ask the installed tools (opencode, pi, omp) which skills they see
+#   --upstream  also fail if the tree ships any user-owned file (run this in psai itself, not in a fork)
 #   <extra-root> also validate another harness root (L0 content checks + L2)
 set -uo pipefail
 unset HARNESS_TRACE   # our own check-diff tests must not write into an eval run's trace
@@ -11,9 +12,9 @@ unset HARNESS_TRACE   # our own check-diff tests must not write into an eval run
 ROOT="$(cd "$(dirname "$0")/.." && pwd -P)"
 FIX="$ROOT/evals/fixtures/harness-content"
 [ -d "$FIX" ] || FIX=""   # L4 eval copies strip the test content; its self-tests are then skipped
-QUICK=0; DISCOVER=0; EXTRA=()
+QUICK=0; DISCOVER=0; UPSTREAM=0; EXTRA=()
 for a in "$@"; do
-  case "$a" in --quick) QUICK=1 ;; --discover) DISCOVER=1 ;; *) EXTRA+=("$a") ;; esac
+  case "$a" in --quick) QUICK=1 ;; --discover) DISCOVER=1 ;; --upstream) UPSTREAM=1 ;; *) EXTRA+=("$a") ;; esac
 done
 fails=0
 pass() { echo "  ok   $*"; }
@@ -53,51 +54,58 @@ print('\n'.join(p)); sys.exit(1 if p else 0)")"; then
   check "$label: README diagrams up to date" py graph.py "$r" --check-readme
 done
 check "root README diagram up to date" py graph.py "$ROOT" --check-readme
+if [ "$UPSTREAM" = 1 ]; then
+  shipped="$(cd "$ROOT" && git ls-files -co --exclude-standard | python3 -c "
+import sys; sys.path.insert(0, 'scripts'); import harness
+print('\n'.join(harness.user_files('.', 'LAYOUT.md', [l.strip() for l in sys.stdin if l.strip()])))")"
+  [ -z "$shipped" ] && pass "upstream ships no user-owned file" || fail "upstream ships user-owned files: $(echo $shipped)"
+fi
 
 if [ -n "$FIX" ]; then
 echo "L0 validator catches broken content"
 broken() { # name, python mutation of wf (a dict); expects validation to fail
   local b="$T/broken-$1"; rm -rf "$b"; cp -r "$FIX" "$b"
   python3 -c "
-import yaml; b='$b'; p=b+'/workflows/coding.yaml'; wf=yaml.safe_load(open(p)); n=wf['nodes']
+import yaml; b='$b'; p=b+'/workflows/example.yaml'; wf=yaml.safe_load(open(p)); n=wf['nodes']
 $2
 yaml.safe_dump(wf, open(p,'w'), sort_keys=False)"
   check "rejects: $1" bash -c "! python3 -c \"import sys; sys.path.insert(0, '$ROOT/scripts'); import harness; sys.exit(1 if harness.validate('$b') else 0)\""
 }
-broken "loop without a limit" "wf['defaults'].pop('max'); n['verify']['next'][0].pop('max')"
-broken "missing step file" "n['verify']['step']='steps/nope.md'"
-broken "role without a brief" "n['implement']['role']='ghost'"
-broken "unreachable node" "n['orphan']={'step':'steps/verify.md','next':[{'to':'ready'}]}"
-broken "dead end" "n['handover']['next']=[{'to':'handover'}]"
+broken "loop without a limit" "wf['defaults'].pop('max')"
+broken "missing step file" "n['check']['step']='steps/nope.md'"
+broken "role without a brief" "n['do']['role']='ghost'"
+broken "unreachable node" "n['orphan']={'step':'steps/do.md','next':[{'to':'ready'}]}"
+broken "dead end" "n['report']['next']=[{'to':'report'}]"
 broken "workflow not routed" "w2=dict(wf); w2['name']='other'; yaml.safe_dump(w2, open(b+'/workflows/other.yaml','w'), sort_keys=False)"
 b="$T/broken-layout"; rm -rf "$b"; cp -r "$FIX" "$b"; echo x > "$b/steps/notes.txt"
 check "rejects: file outside LAYOUT" bash -c "! python3 -c \"import sys; sys.path.insert(0, '$ROOT/scripts'); import harness; sys.exit(1 if harness.check_layout('$b', '$ROOT/LAYOUT.md') else 0)\""
 
 echo "L0 role boundaries (check-diff.sh)"
-D="$ROOT/skills/work/check-diff.sh"; R="$FIX/roles"
+D="$ROOT/skills/work/check-diff.sh"; R="$T/roles"; mkdir -p "$R"
+for m in maker:anything tester:tests viewer:nothing; do printf -- '---\nmay_change: %s\n---\n' "${m#*:}" > "$R/${m%%:*}.md"; done
 g="$T/gitrepo"; mkdir -p "$g/src" "$g/tests"; echo a > "$g/src/app.py"
 (cd "$g" && git init -q && git add . && git -c user.email=c@c -c user.name=c commit -qm init) || fail "git init"
 b="$(git -C "$g" rev-parse HEAD)"
 echo t > "$g/tests/test_app.py"
-check "tests role may add tests" bash -c "cd '$g' && '$D' '$R/qa.md' $b"
-check "nothing role may not touch tests" bash -c "cd '$g' && ! '$D' '$R/reviewer.md' $b"
+check "tests role may add tests" bash -c "cd '$g' && '$D' '$R/tester.md' $b"
+check "nothing role may not touch tests" bash -c "cd '$g' && ! '$D' '$R/viewer.md' $b"
 echo x >> "$g/src/app.py"
-check "tests role may not touch product code" bash -c "cd '$g' && ! '$D' '$R/qa.md' $b"
-check "TESTS_ALLOW extends the tests role" bash -c "cd '$g' && TESTS_ALLOW='^src/app\.py$' '$D' '$R/qa.md' $b"
-check "anything role may touch code" bash -c "cd '$g' && '$D' '$R/engineer.md' $b"
-check "trace line written" bash -c "cd '$g' && HARNESS_TRACE='$T/trace' '$D' '$R/qa.md' $b; grep -q 'role=qa may_change=tests result=violation' '$T/trace'"
+check "tests role may not touch product code" bash -c "cd '$g' && ! '$D' '$R/tester.md' $b"
+check "TESTS_ALLOW extends the tests role" bash -c "cd '$g' && TESTS_ALLOW='^src/app\.py$' '$D' '$R/tester.md' $b"
+check "anything role may touch code" bash -c "cd '$g' && '$D' '$R/maker.md' $b"
+check "trace line written" bash -c "cd '$g' && HARNESS_TRACE='$T/trace' '$D' '$R/tester.md' $b; grep -q 'role=tester may_change=tests result=violation' '$T/trace'"
 
 echo "L0 engine trace (trace.sh)"
 TR="$ROOT/skills/work/trace.sh"; tg="$T/tracerepo"; mkdir -p "$tg"; (cd "$tg" && git init -q)
-trun() { (cd "$tg" && HARNESS_HOME="$FIX" "$TR" coding "$1") >/dev/null 2>&1; }
+trun() { (cd "$tg" && HARNESS_HOME="$FIX" "$TR" example "$1") >/dev/null 2>&1; }
 check "refuses a run that doesn't begin at start" bash -c "$(declare -f trun); TR='$TR' tg='$tg' FIX='$FIX'; ! trun ready"
-check "records start and an edge" bash -c "$(declare -f trun); TR='$TR' tg='$tg' FIX='$FIX'; trun clarify && trun implement"
-check "refuses leaving a role node before check-diff" bash -c "$(declare -f trun); TR='$TR' tg='$tg' FIX='$FIX'; ! trun verify_prep"
-echo "check-diff role=engineer may_change=anything result=ok files=1" >> "$tg/.git/harness-trace"
-check "refuses a move that isn't an edge" bash -c "$(declare -f trun); TR='$TR' tg='$tg' FIX='$FIX'; ! trun human_review"
-check "allows the edge after check-diff" bash -c "$(declare -f trun); TR='$TR' tg='$tg' FIX='$FIX'; trun verify_prep"
-echo "check-diff role=qa may_change=tests result=ok files=1" >> "$tg/.git/harness-trace"
-check "escalate resumes the asker" bash -c "$(declare -f trun); TR='$TR' tg='$tg' FIX='$FIX'; trun verify && trun escalate && trun verify"
+check "records start" bash -c "$(declare -f trun); TR='$TR' tg='$tg' FIX='$FIX'; trun do"
+check "refuses leaving a role node before check-diff" bash -c "$(declare -f trun); TR='$TR' tg='$tg' FIX='$FIX'; ! trun check"
+echo "check-diff role=doer may_change=anything result=ok files=1" >> "$tg/.git/harness-trace"
+check "refuses a move that isn't an edge" bash -c "$(declare -f trun); TR='$TR' tg='$tg' FIX='$FIX'; ! trun report"
+check "allows the edge after check-diff" bash -c "$(declare -f trun); TR='$TR' tg='$tg' FIX='$FIX'; trun check"
+echo "check-diff role=checker may_change=nothing result=ok files=0" >> "$tg/.git/harness-trace"
+check "escalate resumes the asker" bash -c "$(declare -f trun); TR='$TR' tg='$tg' FIX='$FIX'; trun escalate && trun check"
 
 fi
 
@@ -195,6 +203,42 @@ check "pi AGENTS.md not created" test ! -e "$h/.pi/agent/AGENTS.md"
 h="$T/taken"; mkdir -p "$h/.harness" "$h/.claude"
 check "refuses a foreign ~/.harness" test "$(run "$h" >/dev/null 2>&1; echo $?)" = 1
 
+echo "L1 owner rules (instructions/owner.md)"
+fk="$T/ownerfork"; cp -r "$ROOT" "$fk"; rm -rf "$fk/.git"; echo "- Ask before deleting anything." > "$fk/instructions/owner.md"
+h="$T/owner"; mkdir -p "$h/.claude" "$h/.pi/agent"
+env -u XDG_CONFIG_HOME HOME="$h" bash "$fk/install.sh" > /dev/null
+check "claude imports global.md and owner.md" bash -c "grep -Fxq '$imp' '$h/.claude/CLAUDE.md' && grep -Fxq '@~/.harness/instructions/owner.md' '$h/.claude/CLAUDE.md'"
+check "pi block inlines owner.md" grep -q 'Ask before deleting anything' "$h/.pi/agent/AGENTS.md"
+a1="$(snap "$h")"; env -u XDG_CONFIG_HOME HOME="$h" bash "$fk/install.sh" > /dev/null
+check "owner.md install is idempotent" test "$a1" = "$(snap "$h")"
+env -u XDG_CONFIG_HOME HOME="$h" bash "$fk/install.sh" --uninstall > /dev/null
+check "uninstall removes both imports" test ! -e "$h/.claude/CLAUDE.md"
+
+echo "L1 a fork takes upstream updates without conflicts"
+G="git -c user.email=t@t -c user.name=t"
+up="$T/upstream"; mkdir -p "$up"
+(cd "$ROOT" && git ls-files -co --exclude-standard -z | xargs -0 cp --parents -t "$up" 2>/dev/null)
+(cd "$up" && git init -q -b main && git add -A && $G commit -qm upstream) || fail "upstream repo"
+git clone -q "$up" "$T/fork"; f="$T/fork"
+if [ -n "$FIX" ]; then cp -r "$FIX"/workflows "$FIX"/steps "$FIX"/roles "$FIX"/guides "$FIX"/templates "$FIX"/knowledge "$f/"; rm -f "$f"/*/README.md.fix; fi
+# the fixture's folders have no READMEs of their own, so the fork keeps upstream's
+echo "- Ask before deleting anything." > "$f/instructions/owner.md"
+printf '# Inbox\n\n## 2026-01-01: a finding\n- Tag: fact\n' > "$f/knowledge/inbox.md"
+python3 "$f/scripts/graph.py" "$f" --update-readme > /dev/null
+(cd "$f" && git add -A && $G commit -qm "my stack") || fail "fork commit"
+user_before="$(cd "$f" && git ls-files | python3 -c "
+import sys; sys.path.insert(0, 'scripts'); import harness
+print('\n'.join(harness.user_files('.', 'LAYOUT.md', [l.strip() for l in sys.stdin])))" | xargs md5sum)"
+(cd "$up" && for x in README.md LAYOUT.md instructions/global.md skills/*/SKILL.md docs/decisions/*.md $(git ls-files '*README.md'); do echo "<!-- upstream change -->" >> "$x"; done \
+  && echo "# upstream change" >> install.sh && echo "# upstream change" >> scripts/check.sh && $G commit -qam "upstream update")
+(cd "$f" && git remote add upstream "$up" && $G pull -q --no-rebase --no-edit upstream main) > "$T/merge.out" 2>&1
+check "git pull upstream main merges cleanly" bash -c "! grep -qi conflict '$T/merge.out' && test -z \"\$(git -C '$f' diff --name-only --diff-filter=U)\""
+check "upstream changes arrived" grep -q 'upstream change' "$f/LAYOUT.md"
+check "user files untouched by the merge" bash -c "cd '$f' && echo '$user_before' | md5sum -c --quiet"
+check "the fork still validates" python3 -c "
+import sys; sys.path.insert(0, '$f/scripts'); import harness
+sys.exit(1 if harness.validate('$f') + harness.check_layout('$f', '$f/LAYOUT.md') else 0)"
+
 if [ "$DISCOVER" = 1 ]; then
   echo "L1 discovery (real tool binaries, temp HOME, no network calls)"
   h="$T/disc"; mkdir -p "$h/.claude" "$h/.config/opencode" "$h/.pi/agent" "$h/.omp/agent" "$h/w"
@@ -212,7 +256,7 @@ if [ "$DISCOVER" = 1 ]; then
   if command -v omp >/dev/null; then
     out="$( (echo '{"type":"get_state"}'; sleep 10) | HOME="$h" ANTHROPIC_API_KEY=dummy timeout 90 omp --mode rpc --no-session --no-title 2>/dev/null)"
     for n in $SKILLS; do check "omp sees $n" grep -q "skill:$n\"" <<< "$out"; done
-    check "omp loads global.md via import" grep -q 'Owner rules' <<< "$out"
+    check "omp loads global.md via import" grep -q 'psai harness' <<< "$out"
   fi
   cd "$ROOT" || exit 1
 fi

@@ -7,6 +7,6 @@
   - template = the exact output format;
   - knowledge = what's true and what was decided.
 
-  During a task, agents write only to knowledge inboxes and the task's PR description or handover. Everything else changes only through `customize-harness`, as a PR the owner approves. v1's preferences became guides (rules), and knowledge became facts, decisions and inboxes.
+  During a task, agents write only to knowledge inboxes and the task's PR description or final report. Everything else changes only through `customize-harness`, as a PR the owner approves. Preferences are rules, so they live in guides; knowledge is facts, decisions and inboxes.
 - Why: rules and facts age differently and need different owners; agents must not rewrite their own rules mid-task.
 - Source: the owner's v2 spec.

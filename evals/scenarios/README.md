@@ -1,6 +1,6 @@
 # evals/scenarios/
 
-One YAML file per scenario, named `<name>.yaml`; `customize-harness` adds at least one for every new workflow. Example: [happy-path.yaml](happy-path.yaml). Format:
+Your scenarios: one YAML file per scenario, named `<name>.yaml`. `customize-harness` adds at least one for every new workflow. psai's own scenarios live in [psai/](psai/README.md). Example: [psai/happy-path.yaml](psai/happy-path.yaml). Format:
 ```yaml
 name: happy-path
 level: L3                      # L3 (content fixture) or L4 (bootstrap)

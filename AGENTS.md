@@ -1,6 +1,6 @@
 # Maintaining psai
 
-psai ships VANILLA: the machinery and empty, documented folders. Never add the owner's workflows, roles, steps, guides, templates or preferences to the shipped tree. Test content goes in `evals/fixtures/harness-content/`; decisions about psai itself go in `docs/decisions/`.
+psai ships VANILLA and is meant to be forked: the machinery plus empty, documented folders. Never ship a file in a user-owned place (LAYOUT.md, Owner = you), nor anyone's personal setup. Test content stays neutral, in `evals/fixtures/harness-content/`. psai's own scenarios go in `evals/scenarios/psai/`, and decisions about psai itself go in `docs/decisions/`.
 
 ## Rules
 - **Every line costs context.** `instructions/global.md` is at most 250 words, and SKILL.md files stay short: the workflow file is the source of truth.
@@ -22,4 +22,4 @@ psai ships VANILLA: the machinery and empty, documented folders. Never add the o
   - Never run it against the real HOME while testing.
 
 ## Before committing
-Run `scripts/check.sh` (add `--discover` after installer or layout changes). Run `evals/run.sh` after changing `work`, `customize-harness` or the fixtures, and keep the AI evals small.
+Run `scripts/check.sh --upstream` (add `--discover` after installer or layout changes). Run `evals/run.sh` after changing `work`, `customize-harness` or the fixtures, and keep the AI evals small.

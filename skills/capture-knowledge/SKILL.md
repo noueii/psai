@@ -17,7 +17,7 @@ First check `H/knowledge/INDEX.md`; if the finding is already recorded, don't ad
 - company content (that belongs in the company's repos).
 
 ## Entry
-Append to the end of the inbox:
+Append to the end of the inbox, creating it (and `knowledge/INDEX.md`) with a one-line title if it doesn't exist yet:
 
 ```md
 ## YYYY-MM-DD: <short title>

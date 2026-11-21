@@ -2,11 +2,11 @@
 
 AI evals that run the harness headless, so the owner isn't the test loop.
 - **L3:** scenarios on the test content in `fixtures/harness-content/`, plus one on vanilla.
-- **L4:** bootstrap from vanilla with `customize-harness`, then a fixture task on the result.
+- **L4:** a generic user bootstraps a workflow from vanilla with `customize-harness`; then a fixture task runs on the result.
 
 ```sh
 evals/run.sh                                    # every scenario, Claude Code, 1 run each
-evals/run.sh --runs 3 evals/scenarios/happy-path.yaml
+evals/run.sh --runs 3 evals/scenarios/psai/happy-path.yaml
 evals/run.sh --tool all                         # Claude Code and omp
 ```
 
@@ -33,10 +33,11 @@ A block with no scripted answer is an unexpected escalation and fails the run.
 - the printed `[harness] node:` path;
 - per-role `check-diff` results (`HARNESS_TRACE`);
 - that the repo's checks pass;
-- the handover sections;
+- the final report's sections;
 - the escalation count;
+- for L4, that customize-harness touched only user-owned paths;
 - that nothing was pushed or merged.
 
-Each run writes a JSON summary to `results/`. A passing L4 run also saves the harness content it built, which is the owner's own coding setup, ready to adopt. `--runs N` gives a pass rate. `graders/judge.md` is an optional AI-judge rubric.
+Each run writes a JSON summary to `results/`. A passing L4 run also saves the harness content it built. `--runs N` gives a pass rate. `graders/judge.md` is an optional AI-judge rubric.
 
 Scenario format: see [scenarios/README.md](scenarios/README.md).

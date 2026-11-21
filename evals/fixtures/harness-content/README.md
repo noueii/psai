@@ -3,6 +3,7 @@
 Neutral TEST content: one tiny `example` workflow, with generic roles (`doer` may change anything, `checker` nothing), steps, a guide, a template and role knowledge. It is just big enough to exercise every feature:
 - `read:` attachments;
 - `may_change`;
+- a required skill (`doer` needs `my-skills/change-notes`);
 - a limited loop;
 - a human gate;
 - escalate;

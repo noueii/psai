@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # Install, refresh or remove psai for Claude Code, opencode, pi and omp.
-# Usage: ./install.sh [--dry-run] [--uninstall]    (PSAI_HOME overrides the link path, default ~/.psai)
-# Idempotent. Touches only its own links, plugin files and plugin registration. One injection path per tool:
+# Usage: ./install.sh [--dry-run] [--uninstall] [--adopt <skill>]    (PSAI_HOME overrides the link path, default ~/.psai)
+# Idempotent. Touches only its own links, plugin files, README-psai.md and plugin registration. Links psai's skills/,
+# your my-skills/ and the pinned skills.yaml packs (fetched into the git-ignored .skills-cache/) into ~/.claude/skills
+# and ~/.agents/skills. --adopt brings one unmanaged skill from a tool folder under psai. One injection path per tool:
 # a plugin that injects the live psai nudge (scripts/harness.py context). On upgrade it removes v1's import lines
 # and marked blocks, and the old base link if it points to a psai clone.
 set -euo pipefail
@@ -19,14 +21,19 @@ CFG="${XDG_CONFIG_HOME:-$HOME/.config}"
 
 DRY=0
 MODE=install
-for a in "$@"; do
-  case "$a" in
+ADOPT=""
+while [ $# -gt 0 ]; do
+  case "$1" in
     --dry-run) DRY=1 ;;
     --uninstall) MODE=uninstall ;;
-    -h|--help) sed -n '2,3p' "$0" | sed 's/^# //'; exit 0 ;;
-    *) echo "unknown option: $a" >&2; exit 2 ;;
+    --adopt) [ -n "${2:-}" ] || { echo "--adopt needs a skill name" >&2; exit 2; }; ADOPT="$2"; shift ;;
+    -h|--help) sed -n '2,5p' "$0" | sed 's/^# //'; exit 0 ;;
+    *) echo "unknown option: $1" >&2; exit 2 ;;
   esac
+  shift
 done
+CACHE="$REPO/.skills-cache"
+README_MARK='<!-- psai: managed by install.sh -->'
 
 say() { if [ "$DRY" = 1 ]; then echo "would: $*"; else echo "$*"; fi; }
 do_() { [ "$DRY" = 1 ] || "$@"; }
@@ -117,11 +124,10 @@ under_ours() { # path-prefix test: is $1 inside $H, the repo or (when ours) the 
   return 1
 }
 
-# Is $1 a symlink to one of our skills?
+# Is $1 a symlink to one of our skills (psai's, my-skills/ or a fetched pack)?
 ours() {
   [ -L "$1" ] || return 1
-  local t; t="$(readlink "$1")"
-  case "$t" in */skills/*) under_ours "$t" ;; *) return 1 ;; esac
+  under_ours "$(readlink "$1")"
 }
 
 skill_dests() {
@@ -152,32 +158,126 @@ remove_old_base() { # the pre-rename base link, only if it is a link to a psai c
   fi
 }
 
+# ---------- skills ----------
+skills_py() { python3 "$REPO/scripts/harness.py" skills --root "$REPO" "$@"; }
+
+resolve_ref() { # clone ref -> commit, only for a tag or a commit (a branch is not pinned)
+  local c="$1" ref="$2"
+  git -C "$c" rev-parse -q --verify "refs/tags/$ref^{commit}" 2>/dev/null && return
+  [[ "$ref" =~ ^[0-9a-f]{7,40}$ ]] && git -C "$c" rev-parse -q --verify "$ref^{commit}" 2>/dev/null
+}
+
+# Fetch each pinned skills.yaml entry into .skills-cache/<name>, checked out at its ref. Network only when the
+# cache is missing, points elsewhere, or doesn't have the ref yet.
+fetch_packs() {
+  local name url path ref c have want
+  while IFS=$'\t' read -r name url path ref; do
+    [ -n "$name" ] || continue
+    c="$CACHE/$name"
+    if [ -d "$c/.git" ] && [ "$(git -C "$c" config remote.origin.url)" = "$url" ]; then
+      want="$(resolve_ref "$c" "$ref" || true)"
+      have="$(git -C "$c" rev-parse -q --verify HEAD 2>/dev/null || true)"
+      [ -n "$want" ] && [ "$want" = "$have" ] && continue
+      if [ -z "$want" ]; then
+        say "fetch $name ($url @ $ref)"; [ "$DRY" = 1 ] && continue
+        git -C "$c" fetch -q --tags origin 2>/dev/null || true
+        want="$(resolve_ref "$c" "$ref" || true)"
+      else
+        say "check out $name @ $ref"; [ "$DRY" = 1 ] && continue
+      fi
+    else
+      say "fetch $name ($url @ $ref) -> $c"; [ "$DRY" = 1 ] && continue
+      rm -rf "$c"; mkdir -p "$CACHE"
+      if ! git clone -q --no-checkout "$url" "$c" 2>/dev/null; then echo "skip: can't fetch $name from $url" >&2; rm -rf "$c"; continue; fi
+      want="$(resolve_ref "$c" "$ref" || true)"
+    fi
+    if [ -z "$want" ]; then echo "skip: $name: ref $ref is not a tag or commit in $url" >&2; continue; fi
+    git -C "$c" -c advice.detachedHead=false checkout -q --detach "$want"
+    [ -f "$c/$path/SKILL.md" ] || echo "skip: $name: no $path/SKILL.md in $url @ $ref" >&2
+  done < <(skills_py packs)
+}
+
+# name<TAB>link target for every skill psai links: skills/, then my-skills/, then fetched packs. The first name wins.
+skill_sources() {
+  local md name path seen=" "
+  for md in "$REPO"/skills/*/SKILL.md; do
+    name="$(basename "$(dirname "$md")")"; seen+="$name "; printf '%s\t%s\n' "$name" "$H/skills/$name"
+  done
+  for md in "$REPO"/my-skills/*/SKILL.md; do
+    [ -f "$md" ] || continue
+    name="$(basename "$(dirname "$md")")"
+    case "$seen" in *" $name "*) echo "skip: my-skills/$name clashes with psai's skills/$name; rename yours" >&2; continue ;; esac
+    seen+="$name "; printf '%s\t%s\n' "$name" "$H/my-skills/$name"
+  done
+  while IFS=$'\t' read -r name _ path _; do
+    [ -n "$name" ] && [ -f "$CACHE/$name/$path/SKILL.md" ] || continue
+    case "$seen" in *" $name "*) echo "skip: skills.yaml entry $name clashes with another skill" >&2; continue ;; esac
+    path="${path#./}"; path="${path%/}"; [ "$path" = . ] && path=""
+    seen+="$name "; printf '%s\t%s\n' "$name" "$H/.skills-cache/$name${path:+/$path}"
+  done < <(skills_py packs 2>/dev/null)
+  return 0
+}
+
+readme_text() {
+  cat <<EOT
+$README_MARK
+# Skills in this folder and psai
+
+psai links three kinds of skills here: its own (\`$H/skills/\`), yours (\`$H/my-skills/\`) and other people's,
+pinned in \`$H/skills.yaml\` and fetched into \`$H/.skills-cache/\`. Links into $H are psai's: edit the source,
+not the link. Tools ignore this loose file.
+
+Anything else here is unmanaged. psai lists it (\`python3 $H/scripts/harness.py skills --unmanaged\`) but never
+moves or blocks it. To bring one under psai, run \`$H/install.sh --adopt <name>\`: your own skill moves into
+my-skills/, a skill from a pack becomes a pinned skills.yaml entry. Skills another tool manages go in
+skills.yaml's \`ignore:\` list.
+
+To add or change a skill, use the customize-harness skill.
+EOT
+}
+
+drop_readme() { # dest
+  local f="$1/README-psai.md"
+  if [ -e "$f" ] && ! grep -Fxq "$README_MARK" "$f"; then echo "skip: $f exists and is not ours" >&2; return; fi
+  readme_text > "$TMP"
+  [ -e "$f" ] && cmp -s "$f" "$TMP" && return
+  say "$([ -e "$f" ] && echo update || echo create) $f"
+  [ "$DRY" = 1 ] || cat "$TMP" > "$f"
+}
+
+remove_readme() {
+  local f="$1/README-psai.md"
+  if [ -f "$f" ] && grep -Fxq "$README_MARK" "$f"; then say "remove $f"; do_ rm -f "$f"; fi
+}
+
 link_skills() {
-  local dest name target
+  local dest name src target srcs
+  srcs="$(skill_sources)"
   while IFS= read -r dest; do
     [ -n "$dest" ] || continue
     [ -d "$dest" ] || { say "mkdir $dest"; do_ mkdir -p "$dest"; }
-    for md in "$REPO"/skills/*/SKILL.md; do
-      name="$(basename "$(dirname "$md")")"
+    while IFS=$'\t' read -r name src; do
+      [ -n "$name" ] || continue
       target="$dest/$name"
       if ours "$target"; then
-        [ "$(readlink "$target")" = "$H/skills/$name" ] && continue
+        [ "$(readlink "$target")" = "$src" ] && continue
         say "relink $target"
-        do_ ln -sfn "$H/skills/$name" "$target"
+        do_ ln -sfn "$src" "$target"
       elif [ -e "$target" ] || [ -L "$target" ]; then
         echo "skip: $target exists and is not ours" >&2
       else
-        say "link $target -> $H/skills/$name"
-        do_ ln -s "$H/skills/$name" "$target"
+        say "link $target -> $src"
+        do_ ln -s "$src" "$target"
       fi
-    done
+    done <<< "$srcs"
     # Drop our links to skills that no longer exist.
     for target in "$dest"/*; do
-      if ours "$target" && [ ! -e "$REPO/skills/$(basename "$target")/SKILL.md" ]; then
+      if ours "$target" && ! printf '%s\n' "$srcs" | cut -f1 | grep -Fxq "$(basename "$target")"; then
         say "unlink stale $target"
         do_ rm -f "$target"
       fi
     done
+    drop_readme "$dest"
   done < <(skill_dests)
 }
 
@@ -253,6 +353,10 @@ remove_legacy() { # v1 and early v2 wrote import lines and inlined blocks; the p
 
 install() {
   link_base
+  if [ -n "$ADOPT" ]; then
+    skills_py adopt "$ADOPT" $([ "$DRY" = 1 ] && echo --dry-run) || exit 1
+  fi
+  fetch_packs
   link_skills
   remove_legacy
   remove_old_base
@@ -270,6 +374,7 @@ uninstall() {
     for target in "$dest"/*; do
       if ours "$target"; then say "unlink $target"; do_ rm -f "$target"; fi
     done
+    remove_readme "$dest"
   done
   remove_legacy
   [ -d "$HOME/.claude" ] && uninstall_claude_plugin

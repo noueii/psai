@@ -1,0 +1,20 @@
+name: role-skill
+level: L3
+about: >-
+  The doer role requires the change-notes skill (my-skills/ in the test content). work lists it in the doer's brief,
+  and the doer uses it: CHANGES.md gets a line.
+content: harness-content
+fixture: textkit
+task: Add `reverse(text)` to textkit/text.py, returning the text reversed, and export it from textkit.
+owner:
+  review: Approved.
+  max_turns: 6
+expect:
+  path_includes: [do, check, approve, report, ready]
+  escalations: { max: 0 }
+  roles_checked: [doer, checker]
+  role_used_skill: change-notes
+  work_files: [CHANGES.md]
+  checks: python3 -m unittest -q
+  no_push: true
+  roles_no_route: true

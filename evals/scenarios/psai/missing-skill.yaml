@@ -1,0 +1,21 @@
+name: missing-skill
+level: L3
+about: >-
+  The doer requires change-notes, but it isn't installed anywhere. work must escalate from the do node, offering to
+  install it, before starting the doer; the owner declines, so nothing changes.
+content: harness-content
+strip: [my-skills]
+fixture: textkit
+task: Add `reverse(text)` to textkit/text.py, returning the text reversed, and export it from textkit.
+owner:
+  escalations:
+    - match: "change-notes|skill"
+      answer: Don't install it. Stop the task here; I'll set the skill up later.
+  max_turns: 4
+expect:
+  escalations: { min: 1, max: 1 }
+  escalation_nodes: [do]
+  mentions: [change-notes]
+  path_excludes: [check]
+  unchanged: true
+  no_push: true

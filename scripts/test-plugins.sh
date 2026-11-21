@@ -20,7 +20,7 @@ NL='String.fromCharCode(10)'
 # Claude Code: run the SessionStart hook as the plugin would.
 mkdir -p "$T/claude"; ln -s "$ROOT" "$T/claude/.psai"
 out="$(env -u PSAI_HOME -u PSAI_ROLE HOME="$T/claude" bash "$ROOT/plugins/claude/hooks/session-start.sh")"
-ctx="$(python3 "$ROOT/scripts/harness.py" context "$ROOT" '~/.psai')"
+ctx="$(cd "$T" && HOME="$T/claude" python3 "$ROOT/scripts/harness.py" context "$ROOT" '~/.psai')"   # same HOME: the nudge counts unmanaged skills
 python3 -c "
 import json, sys; d = json.loads(sys.argv[1])['hookSpecificOutput']
 sys.exit(0 if d['hookEventName'] == 'SessionStart' and d['additionalContext'] == sys.argv[2] + '\n' else 1)" "$out" "$ctx"

@@ -37,7 +37,7 @@ done
 check "skills/ is flat" test -z "$(find "$ROOT/skills" -mindepth 3 -name SKILL.md)"
 
 echo "L0 structure"
-missing="$(cd "$ROOT" && find . -type d \( -name .git -o -name .claude-plugin -o -name __pycache__ -o -path './skills/*' -o -path './evals/fixtures/*/*' -o -path './evals/results/*' \) -prune -o -type d -print \
+missing="$(cd "$ROOT" && find . -type d \( -name .git -o -name .claude-plugin -o -name __pycache__ -o -name .skills-cache -o -path './skills/*' -o -path './my-skills/*' -o -path './evals/fixtures/*/*' -o -path './evals/results/*' \) -prune -o -type d -print \
   | while read -r d; do [ -f "$d/README.md" ] || echo "$d"; done)"
 [ -z "$missing" ] && pass "every folder has a README.md" || fail "folders without README.md: $(echo $missing)"
 check "instructions/global.md is at most 120 words" test "$(wc -w < "$ROOT/instructions/global.md")" -le 120
@@ -61,6 +61,17 @@ old_paths="$(cd "$ROOT" && { git ls-files -co --exclude-standard 2>/dev/null || 
   | xargs -0 grep -nIE '(^|[^[:alnum:]_])\.harness([^[:alnum:]_-]|$)' 2>/dev/null | grep -v legacy)"
 [ -z "$old_paths" ] && pass "no ~/.harness path left (the base folder is ~/.psai)" || { fail "old ~/.harness paths:"; printf '%s\n' "$old_paths" | sed 's/^/         /'; }
 
+echo "L0 skills (harness.py skills check: roles' skills resolve; reads your tool folders, never writes)"
+E="$T/emptyhome"; mkdir -p "$E"
+for r in "$ROOT" ${FIX:+"$FIX"} ${EXTRA[@]+"${EXTRA[@]}"}; do
+  label="$( [ "$r" = "$ROOT" ] && echo vanilla || { [ "$r" = "$FIX" ] && echo fixture || echo "$r"; })"
+  # the fixture is test content: resolve it against an empty HOME so the result doesn't depend on this machine
+  if [ "$r" = "$FIX" ]; then out="$(cd "$T" && HOME="$E" python3 "$ROOT/scripts/harness.py" skills check --root "$r")"; rc=$?
+  else out="$(python3 "$ROOT/scripts/harness.py" skills check --root "$r")"; rc=$?; fi
+  [ "$rc" = 0 ] && pass "$label: required skills resolve, skills.yaml and my-skills/ valid" || fail "$label: skills"
+  printf '%s\n' "$out" | grep -v '^  ok' | sed 's/^  /  /'
+done
+
 echo "L0 injected nudge (harness.py context)"
 gen="$T/gen"; mkdir -p "$gen"; cp -r "$ROOT/instructions" "$ROOT/skills" "$gen/"; mkdir -p "$gen/workflows"
 [ -n "$FIX" ] && cp -r "$FIX"/workflows "$FIX"/steps "$FIX"/roles "$FIX"/guides "$FIX"/templates "$FIX"/knowledge "$gen/"
@@ -69,6 +80,7 @@ for w in "$gen"/workflows/*.yaml; do
   case "$w" in *.cases.yaml|*/ROUTING.yaml|*'*'*) continue ;; esac
   n="$(basename "$w" .yaml)"; check "nudge lists workflow $n" bash -c "python3 '$ROOT/scripts/harness.py' context '$gen' | grep -q '^- $n: '"
 done
+check "nudge says how to add or change a skill" bash -c "python3 '$ROOT/scripts/harness.py' context '$ROOT' | grep -q 'To add or change a skill, use customize-harness'"
 check "nudge names the router skill" bash -c "python3 '$ROOT/scripts/harness.py' context '$ROOT' | grep -q 'request-router'"
 check "PSAI_ROLE gives the role-mode nudge, without routing" bash -c "o=\"\$(PSAI_ROLE=doer python3 '$ROOT/scripts/harness.py' context '$gen')\"; grep -q 'You are the doer inside a running psai workflow' <<< \"\$o\" && ! grep -q 'run the request-router skill first' <<< \"\$o\" && ! grep -q '^- example: ' <<< \"\$o\""
 echo "  info nudge size: $(python3 "$ROOT/scripts/harness.py" context "$ROOT" '~/.psai' | wc -w) words vanilla, $(python3 "$ROOT/scripts/harness.py" context "$gen" '~/.psai' | wc -w) with the test workflow"
@@ -97,6 +109,30 @@ broken "dead end" "n['report']['next']=[{'to':'report'}]"
 broken "workflow not routed" "w2=dict(wf); w2['name']='other'; yaml.safe_dump(w2, open(b+'/workflows/other.yaml','w'), sort_keys=False)"
 b="$T/broken-layout"; rm -rf "$b"; cp -r "$FIX" "$b"; echo x > "$b/steps/notes.txt"
 check "rejects: file outside LAYOUT" bash -c "! python3 -c \"import sys; sys.path.insert(0, '$ROOT/scripts'); import harness; sys.exit(1 if harness.check_layout('$b', '$ROOT/LAYOUT.md') else 0)\""
+
+echo "L0 skill checks catch broken setups"
+sk() { HOME="$E" python3 "$ROOT/scripts/harness.py" skills check --root "$1" --project "${2:-$T}" --json; }
+skbad() { # name, shell mutation of a copy of the fixture in $b; expects check to fail
+  b="$T/skbad-$(printf '%s' "$1" | tr -c 'a-z0-9' '-')"; rm -rf "$b"; cp -r "$FIX" "$b"; (cd "$b" && eval "$2")
+  check "rejects: $1" bash -c "! python3 -c \"import sys; sys.path.insert(0, '$ROOT/scripts'); import harness; sys.exit(1 if harness.validate('$b') else 0)\" || ! HOME='$E' python3 '$ROOT/scripts/harness.py' skills check --root '$b' --project '$T' >/dev/null"
+}
+skbad "required skill that resolves nowhere" "rm -rf my-skills/change-notes"
+skbad "unpinned skills.yaml entry" "printf 'skills:\n  - {name: pk, source: github:o/r, path: pk, ref: main}\n' > skills.yaml"
+skbad "skills.yaml entry without a ref" "printf 'skills:\n  - {name: pk, source: github:o/r, path: pk}\n' > skills.yaml"
+skbad "a role that lists work or request-router" "sed -i 's/required: \[change-notes\]/required: [change-notes, request-router]/' roles/doer.md"
+skbad "my-skills name != folder" "sed -i 's/^name: change-notes/name: other/' my-skills/change-notes/SKILL.md"
+skbad "a loose file in my-skills/" "echo x > my-skills/notes.md"
+skbad "my-skills clashing with psai's skills/" "mkdir -p skills/change-notes && cp my-skills/change-notes/SKILL.md skills/change-notes/"
+b="$T/skproj"; rm -rf "$b"; cp -r "$FIX" "$b"; p="$T/proj"; mkdir -p "$p/.agents/skills"; mv "$b/my-skills/change-notes" "$p/.agents/skills/"
+check "warns: a required skill that is project-only (make it optional)" bash -c "$(declare -f sk); E='$E' ROOT='$ROOT' T='$T'; sk '$b' '$p' | grep -q 'make it optional'"
+mkdir -p "$E/.agents/skills/change-notes"; cp "$FIX/my-skills/change-notes/SKILL.md" "$E/.agents/skills/change-notes/"
+check "warns: a duplicate skill name (prefix your own)" bash -c "$(declare -f sk); E='$E' ROOT='$ROOT' T='$T'; sk '$FIX' | grep -q 'prefix your own skills'"
+check "a real copy in a tool folder counts as unmanaged" bash -c "$(declare -f sk); E='$E' ROOT='$ROOT' T='$T'; sk '$FIX' | python3 -c 'import json,sys; sys.exit(0 if json.load(sys.stdin)[\"unmanaged\"] == [\"change-notes\"] else 1)'"
+rm -rf "$E/.agents"
+check "brief lists the role's skills with use-when and path" bash -c "PSAI_HOME='$FIX' HOME='$E' python3 '$ROOT/scripts/harness.py' skills brief '$FIX/roles/doer.md' '$FIX/steps/do.md' | grep -q '^Your skills: change-notes (use when you change files in a repo; $FIX/my-skills/change-notes/SKILL.md)'"
+check "brief: missing required skill exits 3 and says escalate" bash -c "cd '$T'; out=\"\$(PSAI_HOME='$T/skbad-required-skill-that-resolves-nowhere' HOME='$E' python3 '$ROOT/scripts/harness.py' skills brief '$FIX/roles/doer.md')\"; test \$? = 3 && grep -q 'escalate first' <<< \"\$out\""
+b="$T/skopt"; rm -rf "$b"; cp -r "$FIX" "$b"; sed -i 's/required: \[change-notes\]/required: []\n  optional: [nope]/' "$b/roles/doer.md"
+check "brief: missing optional skill is noted, exit 0" bash -c "cd '$T'; PSAI_HOME='$b' HOME='$E' python3 '$ROOT/scripts/harness.py' skills brief '$b/roles/doer.md' | grep -q 'Missing optional skills: nope. Note them in the final report'"
 
 echo "L0 role boundaries (check-diff.sh)"
 D="$ROOT/skills/work/check-diff.sh"; R="$T/roles"; mkdir -p "$R"
@@ -223,6 +259,69 @@ h="$T/oldlink"; mkdir -p "$h/.claude"; ln -s "$T/elsewhere" "$h/.harness"
 run "$h" > /dev/null 2>&1
 check "a ~/.harness link to something else is left alone" test "$(readlink "$h/.harness")" = "$T/elsewhere"
 
+echo "L1 skills: registry, my-skills/, skills.yaml packs (local git, no network), adopt, ignore"
+G="git -c user.email=t@t -c user.name=t"
+sf="$T/skfork"; mkdir -p "$sf"; (cd "$ROOT" && git ls-files -co --exclude-standard -z | xargs -0 cp --parents -t "$sf" 2>/dev/null)
+mkskill() { mkdir -p "$1"; printf -- '---\nname: %s\ndescription: "Test skill %s. Use when testing."\n---\nbody\n' "$(basename "$1")" "$(basename "$1")" > "$1/SKILL.md"; }
+mkskill "$sf/my-skills/mine"
+pk="$T/packsrc"; mkskill "$pk/skills/pk-tag"; mkskill "$pk/skills/pk-sha"
+(cd "$pk" && git init -q -b main && git add -A && $G commit -qm one && git tag v1) || fail "pack fixture repo"
+sha="$(git -C "$pk" rev-parse HEAD)"
+printf 'skills:\n  - name: pk-tag\n    source: file://%s\n    path: skills/pk-tag\n    ref: v1\n  - name: pk-sha\n    source: file://%s\n    path: skills/pk-sha\n    ref: %s\nignore: [orca-cli]\n' "$pk" "$pk" "$sha" > "$sf/skills.yaml"
+h="$T/skh"; mkdir -p "$h/.claude/skills" "$h/.config/opencode/skills" "$h/.pi/agent/skills" "$h/.omp/agent/skills" "$h/.agents/skills" "$h/proj/.agents/skills" "$h/proj/.claude/skills"
+mkskill "$h/.claude/skills/own-a"                                     # the user's own, in a tool folder
+mkskill "$h/.config/opencode/skills/oc-only"; mkskill "$h/.pi/agent/skills/pi-only"; mkskill "$h/.omp/agent/skills/omp-only"
+np="$T/npxsrc"; mkskill "$np/skills/npx-b"; (cd "$np" && git init -q -b main && git add -A && $G commit -qm one) || fail "npx fixture repo"
+cp -r "$np/skills/npx-b" "$h/.agents/skills/npx-b"; ln -s ../../.agents/skills/npx-b "$h/.claude/skills/npx-b"   # as npx skills does
+printf '{"version":3,"skills":{"npx-b":{"source":"%s","sourceType":"git","sourceUrl":"file://%s","skillPath":"skills/npx-b/SKILL.md"}}}\n' "$np" "$np" > "$h/.agents/.skill-lock.json"
+mkskill "$h/.agents/skills/orca-cli"                                  # managed by another tool, ignored
+mkskill "$h/proj/.agents/skills/proj-only"; ln -s ../../.agents/skills/proj-only "$h/proj/.claude/skills/proj-only"
+srun() { env -u XDG_CONFIG_HOME -u PSAI_HOME HOME="$h" bash "$sf/install.sh" "$@"; }
+sreg() { (cd "$h/proj" && env -u XDG_CONFIG_HOME -u PSAI_HOME HOME="$h" python3 "$sf/scripts/harness.py" skills --root "$h/.psai" --project "$h/proj" --json); }
+q() { python3 -c "import json,sys; r=json.load(open('$T/reg.json')); sys.exit(0 if ($1) else 1)"; }
+srun > "$T/sk.out" 2>&1 || { fail "install with skills"; cat "$T/sk.out"; }
+check "my-skills/mine linked into both folders" bash -c "test \"\$(readlink '$h/.claude/skills/mine')\" = '$h/.psai/my-skills/mine' && test -f '$h/.agents/skills/mine/SKILL.md'"
+check "pack pinned to a tag fetched and linked" bash -c "test -f '$sf/.skills-cache/pk-tag/skills/pk-tag/SKILL.md' && test \"\$(readlink '$h/.claude/skills/pk-tag')\" = '$h/.psai/.skills-cache/pk-tag/skills/pk-tag'"
+check "pack pinned to a commit checked out at it" bash -c "test \"\$(git -C '$sf/.skills-cache/pk-sha' rev-parse HEAD)\" = '$sha' && test -f '$h/.agents/skills/pk-sha/SKILL.md'"
+check "README-psai.md dropped in both folders" bash -c "grep -q 'install.sh --adopt' '$h/.claude/skills/README-psai.md' && grep -q 'customize-harness' '$h/.agents/skills/README-psai.md'"
+check "unmanaged skills left in place" bash -c "test -d '$h/.claude/skills/own-a' -a ! -L '$h/.claude/skills/own-a' && test -d '$h/.agents/skills/npx-b'"
+after="$(snap "$h")"; srun > /dev/null 2>&1
+check "re-run with packs changes nothing" test "$after" = "$(snap "$h")"
+(cd "$pk" && echo more >> skills/pk-tag/SKILL.md && $G commit -qam two)
+srun > /dev/null 2>&1
+check "a pinned pack ignores new upstream commits" bash -c "! grep -q more '$h/.claude/skills/pk-tag/SKILL.md'"
+sreg > "$T/reg.json" || fail "registry"
+check "registry: psai skill seen by all four tools" q "sorted(r['work']['tools']) == ['claude','omp','opencode','pi'] and not r['work']['unmanaged']"
+check "registry: my-skills and packs are managed" q "not r['mine']['unmanaged'] and not r['pk-tag']['unmanaged'] and 'my-skills' in [l['kind'] for l in r['mine']['locations']]"
+check "registry: tool-only folders map to their tool" q "r['oc-only']['tools'] == ['opencode'] and r['pi-only']['tools'] == ['pi'] and r['omp-only']['tools'] == ['omp']"
+check "registry: unmanaged = own-a, npx-b and the tool-only ones" q "sorted(n for n in r if r[n]['unmanaged']) == ['npx-b','oc-only','omp-only','own-a','pi-only']"
+check "registry: a link to the same copy is no duplicate" q "not r['npx-b']['duplicate'] and sorted(r['npx-b']['tools']) == ['claude','omp','opencode','pi']"
+check "registry: project skills seen, not unmanaged" q "r['proj-only']['project_only'] and not r['proj-only']['unmanaged'] and 'claude' in r['proj-only']['tools']"
+check "registry: ignored skill never reported" q "r['orca-cli']['ignored'] and not r['orca-cli']['unmanaged']"
+check "check.sh-side count: 5 unmanaged" bash -c "cd '$h/proj' && HOME='$h' python3 '$sf/scripts/harness.py' skills check --root '$h/.psai' | grep -q 'info 5 unmanaged'"
+check "nudge mentions the unmanaged count" bash -c "cd '$h/proj' && HOME='$h' python3 '$sf/scripts/harness.py' context '$h/.psai' | grep -q '^5 skill(s) in your tool folders'"
+srun --adopt orca-cli > /dev/null 2>&1
+check "adopt refuses an ignored skill" test -d "$h/.agents/skills/orca-cli" -a ! -L "$h/.agents/skills/orca-cli"
+before="$(snap "$h")"; srun --adopt own-a --dry-run > /dev/null 2>&1
+check "adopt --dry-run changes nothing" test "$before" = "$(snap "$h")" -a ! -e "$sf/my-skills/own-a"
+srun --adopt own-a > "$T/adopt.out" 2>&1 || { fail "adopt own-a"; cat "$T/adopt.out"; }
+check "adopt (own): moved into my-skills/ and linked back to both folders" bash -c "test -f '$sf/my-skills/own-a/SKILL.md' && test \"\$(readlink '$h/.claude/skills/own-a')\" = '$h/.psai/my-skills/own-a' && test -L '$h/.agents/skills/own-a'"
+srun --adopt npx-b > "$T/adopt.out" 2>&1 || { fail "adopt npx-b"; cat "$T/adopt.out"; }
+check "adopt (pack): pinned skills.yaml entry from the npx lock" python3 -c "
+import yaml,sys; e=[x for x in yaml.safe_load(open('$sf/skills.yaml'))['skills'] if x['name']=='npx-b']
+sys.exit(0 if e and e[0]['source']=='file://$np' and e[0]['path']=='skills/npx-b' and e[0]['ref']=='$(git -C "$np" rev-parse HEAD)' else 1)"
+check "adopt (pack): linked from the cache; old copy kept in .skills-cache/.adopted" bash -c "test \"\$(readlink '$h/.agents/skills/npx-b')\" = '$h/.psai/.skills-cache/npx-b/skills/npx-b' && test -L '$h/.claude/skills/npx-b' && ls '$sf/.skills-cache/.adopted/' | grep -q '^npx-b-'"
+check "adopt kept skills.yaml's other entries and ignore list" bash -c "grep -q 'name: pk-tag' '$sf/skills.yaml' && grep -q 'ignore: \[orca-cli\]' '$sf/skills.yaml'"
+check "the fork with adopted skills still validates" python3 -c "
+import sys; sys.path.insert(0, '$sf/scripts'); import harness
+sys.exit(1 if harness.validate('$sf') + harness.check_layout('$sf', '$sf/LAYOUT.md') else 0)"
+check "my-skills/ and skills.yaml are user-owned" bash -c "cd '$sf' && test \"\$(printf 'my-skills/own-a/SKILL.md\nmy-skills/own-a/scripts/x.sh\nskills.yaml\nmy-skills/README.md\n' | python3 -c \"import sys; sys.path.insert(0, 'scripts'); import harness; print(' '.join(harness.user_files('.', 'LAYOUT.md', [l.strip() for l in sys.stdin])))\")\" = 'my-skills/own-a/SKILL.md my-skills/own-a/scripts/x.sh skills.yaml'"
+printf 'skills:\n  - {name: pk-tag, source: "file://%s", path: skills/pk-tag, ref: v1}\nignore: [orca-cli]\n' "$pk" > "$sf/skills.yaml"; rm -rf "$sf/my-skills/mine"
+srun > /dev/null 2>&1
+check "removed entries and my-skills unlinked as stale" bash -c "test ! -L '$h/.claude/skills/pk-sha' && test ! -L '$h/.agents/skills/mine' && test ! -L '$h/.claude/skills/npx-b' && test -L '$h/.claude/skills/pk-tag'"
+srun --uninstall > /dev/null 2>&1
+check "uninstall removes skill links and README-psai.md, keeps unmanaged and my-skills" bash -c "test -z \"\$(find '$h/.claude/skills' '$h/.agents/skills' -maxdepth 1 -lname '$h/.psai/*')\" && test ! -e '$h/.claude/skills/README-psai.md' && test -d '$h/.agents/skills/orca-cli' && test -f '$sf/my-skills/own-a/SKILL.md'"
+
 echo "L1 PSAI_HOME overrides the link path"
 h="$T/custom"; c="$h/tools/psai"; mkdir -p "$h/.pi/agent"
 PSAI_HOME="$c" env -u XDG_CONFIG_HOME HOME="$h" bash "$I" > /dev/null 2>&1
@@ -242,9 +341,11 @@ up="$T/upstream"; mkdir -p "$up"
 (cd "$ROOT" && git ls-files -co --exclude-standard -z | xargs -0 cp --parents -t "$up" 2>/dev/null)
 (cd "$up" && git init -q -b main && git add -A && $G commit -qm upstream) || fail "upstream repo"
 git clone -q "$up" "$T/fork"; f="$T/fork"
-if [ -n "$FIX" ]; then cp -r "$FIX"/workflows "$FIX"/steps "$FIX"/roles "$FIX"/guides "$FIX"/templates "$FIX"/knowledge "$f/"; rm -f "$f"/*/README.md.fix; fi
+if [ -n "$FIX" ]; then cp -r "$FIX"/workflows "$FIX"/steps "$FIX"/roles "$FIX"/guides "$FIX"/templates "$FIX"/knowledge "$FIX"/my-skills "$f/"; rm -f "$f"/*/README.md.fix; fi
 # the fixture's folders have no READMEs of their own, so the fork keeps upstream's
 echo "- Ask before deleting anything." > "$f/instructions/owner.md"
+mkdir -p "$f/my-skills/my-notes"; printf -- '---\nname: my-notes\ndescription: "Notes. Use when noting."\n---\n' > "$f/my-skills/my-notes/SKILL.md"
+printf 'skills:\n  - {name: pk, source: github:o/r, path: pk, ref: v1}\nignore: [orca-cli]\n' > "$f/skills.yaml"
 printf '# Inbox\n\n## 2026-01-01: a finding\n- Tag: fact\n' > "$f/knowledge/inbox.md"
 python3 "$f/scripts/graph.py" "$f" --update-readme > /dev/null
 (cd "$f" && git add -A && $G commit -qm "my stack") || fail "fork commit"
@@ -256,6 +357,7 @@ print('\n'.join(harness.user_files('.', 'LAYOUT.md', [l.strip() for l in sys.std
 (cd "$f" && git remote add upstream "$up" && $G pull -q --no-rebase --no-edit upstream main) > "$T/merge.out" 2>&1
 check "git pull upstream main merges cleanly" bash -c "! grep -qi conflict '$T/merge.out' && test -z \"\$(git -C '$f' diff --name-only --diff-filter=U)\""
 check "upstream changes arrived" grep -q 'upstream change' "$f/LAYOUT.md"
+check "the fork's my-skills/ and skills.yaml count as user files" bash -c "grep -q 'my-skills/my-notes/SKILL.md' <<< '$user_before' && grep -q 'skills.yaml' <<< '$user_before'"
 check "user files untouched by the merge" bash -c "cd '$f' && echo '$user_before' | md5sum -c --quiet"
 check "the fork still validates" python3 -c "
 import sys; sys.path.insert(0, '$f/scripts'); import harness

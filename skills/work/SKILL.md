@@ -18,7 +18,8 @@ Load `H/workflows/<name>.yaml` and begin at `start`. On entering EVERY node, the
   - its knowledge `H/knowledge/roles/<r>/INDEX.md`;
   - the step;
   - the spec;
-  - the base commit.
+  - the base commit;
+  - its skills: the output of `python3 H/scripts/harness.py skills brief <role file> <step file>` (the role's and the step's `skills:`, resolved). Exit 3 means a required skill is missing: don't start the role; escalate from this node, offering to install it with `customize-harness`. A missing optional skill goes in the final report; carry on.
 
   With `fan_out`, start one fresh agent per lens, never merging lenses. Run section 3 after EVERY role agent, fan-out agents included.
 - **`human: true`:** ask the human with the fixed block, kind `review` (escalation.md), and wait.

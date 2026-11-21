@@ -1,6 +1,8 @@
 ---
 may_change: anything
 read: [guides/example-rules.md]
+skills:
+  required: [change-notes]
 ---
 # Role: doer
 

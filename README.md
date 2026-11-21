@@ -22,10 +22,10 @@ git remote add upstream <psai-upstream-url>   # once
 git pull upstream main
 ./install.sh
 ```
-psai never ships files in the places you own (your workflows, steps, roles, guides, templates, knowledge and `instructions/owner.md`). Upstream changes therefore merge without conflicts. `scripts/check.sh` tests exactly that.
+psai never ships files in the places you own (your workflows, steps, roles, guides, templates, knowledge, `my-skills/`, `skills.yaml` and `instructions/owner.md`). Upstream changes therefore merge without conflicts. `scripts/check.sh` tests exactly that.
 
 ## How it works
-- **The nudge:** each tool gets a plugin that injects a short, live always-on text (about 110 words plus a line per workflow): the core rules, your `owner.md`, "run the request-router skill first", and your workflows' names and `when`.
+- **The nudge:** each tool gets a plugin that injects a short, live always-on text (about 130 words plus a line per workflow): the core rules, your `owner.md`, "run the request-router skill first", your workflows' names and `when`, "to add or change a skill, use customize-harness", and how many skills in your tool folders psai doesn't manage.
 - **`request-router`:** decides each request. A matching workflow runs; a repeatable task with no workflow escalates and offers `customize-harness`; a one-off is handled normally.
 - **`work`:** the engine, read once a workflow is chosen. It runs the workflow node by node:
   - a fresh agent per role;
@@ -37,6 +37,7 @@ psai never ships files in the places you own (your workflows, steps, roles, guid
   `trace.sh` refuses any move that isn't an edge of the workflow.
 - **`customize-harness`:** bootstraps your first workflow, and later adds or changes one piece. It offers proven design patterns as options, never as defaults.
 - **`capture-knowledge`:** agents record facts, decisions and proposed rules in inboxes. Promotion happens by PR, which you merge.
+- **Skills:** roles and steps name the skills they need (`skills: {required, optional}`); `work` lists them in each role agent's brief. Your own skills live in `my-skills/`, other people's are pinned in `skills.yaml`, and `harness.py skills` shows every skill your tools can see. Skills psai doesn't manage are reported, never blocked; `install.sh --adopt <name>` brings one in. See [my-skills/README.md](my-skills/README.md).
 
 ## Layers
 | Layer | Answers | Written by | Loaded |
@@ -55,7 +56,8 @@ During a task, agents write only to knowledge inboxes and to the task's PR descr
 instructions/global.md   core rules in the injected nudge (≤120 words); your rules go in instructions/owner.md
 plugins/                 one per tool (claude, pi, omp, opencode); each injects `scripts/harness.py context` live
 skills/                  request-router, work (engine, escalation format, check-diff.sh, trace.sh), customize-harness (+ patterns/), capture-knowledge
-workflows/ steps/ roles/ guides/ templates/ knowledge/   yours; empty in vanilla (README only)
+workflows/ steps/ roles/ guides/ templates/ knowledge/ my-skills/   yours; empty in vanilla (README only)
+skills.yaml              yours, not shipped: pinned skills from other people, and an ignore list
 scripts/                 check.sh, simulate.py, graph.py, harness.py
 evals/                   run.sh, driver.py, fixtures/, scenarios/, graders/, results/
 docs/decisions/          ADRs about psai itself
@@ -97,7 +99,8 @@ flowchart TD
 ## Install details
 It installs only for tools whose config folder exists (`~/.claude`, `~/.config/opencode`, `~/.pi/agent`, `~/.omp/agent`):
 - links `~/.psai` to your clone (set `PSAI_HOME` to use another path; set it for your tools too, since the skills and plugins read it);
-- links each skill into `~/.claude/skills` and `~/.agents/skills`, never replacing one that isn't its own, and removes its own stale links;
+- links each skill into `~/.claude/skills` and `~/.agents/skills`, never replacing one that isn't its own, and removes its own stale links: psai's skills, your `my-skills/`, and each pinned `skills.yaml` entry (fetched into the git-ignored `.skills-cache/`; network only when the pin changes);
+- drops a `README-psai.md` into both folders saying which skills are psai's and how to adopt the rest (`./install.sh --adopt <name>`);
 - installs ONE plugin per tool, which injects the nudge read live from `~/.psai`:
   - **Claude Code:** adds this repo as a marketplace (`.claude-plugin/marketplace.json`) and installs `psai@psai` (a SessionStart hook);
   - **pi:** links the extension `~/.pi/agent/extensions/psai.ts`;
@@ -116,5 +119,6 @@ evals/run.sh                  # L3 + L4 AI evals, headless, on throwaway copies 
 ```
 - **L0:** LAYOUT placement, every README, frontmatter, every `step`/`read:`/`role` path, and the graph rules: reachable, ends at ready, escalate or a handoff, and every automatic loop has a limit. Also checks that diagrams are fresh, that `check-diff.sh` enforces `may_change`, and that `trace.sh` enforces the graph.
 - **L1:** install, update, uninstall, dry-run, idempotency, no clobbering, stale-link and v1 cleanup for all four tools. `scripts/test-plugins.sh` proves, with no AI and no network, that each plugin's nudge reaches the session. Also checks that a fork with user content pulls an upstream change to every upstream-owned file without conflicts.
+- **Skills (L0/L1):** the registry in a temp HOME with a skill in every location, `skills:` frontmatter, pinned `skills.yaml` entries fetched from a local git repo (no network), the ignore list, adopting your own skill and a pack's, and the checks (a required skill that resolves nowhere fails; duplicates and project-only required skills warn).
 - **L2:** `simulate.py` walks each workflow with scripted outcomes (`workflows/<name>.cases.yaml`).
 - **L3/L4:** see [evals/README.md](evals/README.md).

@@ -7,7 +7,7 @@
 #   --upstream  also fail if the tree ships any user-owned file (run this in psai itself, not in a fork)
 #   <extra-root> also validate another harness root (L0 content checks + L2)
 set -uo pipefail
-unset HARNESS_TRACE   # our own check-diff tests must not write into an eval run's trace
+unset PSAI_TRACE   # our own check-diff tests must not write into an eval run's trace
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd -P)"
 FIX="$ROOT/evals/fixtures/harness-content"
@@ -40,7 +40,7 @@ echo "L0 structure"
 missing="$(cd "$ROOT" && find . -type d \( -name .git -o -name .claude-plugin -o -name __pycache__ -o -path './skills/*' -o -path './evals/fixtures/*/*' -o -path './evals/results/*' \) -prune -o -type d -print \
   | while read -r d; do [ -f "$d/README.md" ] || echo "$d"; done)"
 [ -z "$missing" ] && pass "every folder has a README.md" || fail "folders without README.md: $(echo $missing)"
-check "instructions/global.md is at most 250 words" test "$(wc -w < "$ROOT/instructions/global.md")" -le 250
+check "instructions/global.md is at most 120 words" test "$(wc -w < "$ROOT/instructions/global.md")" -le 120
 for r in "$ROOT" ${FIX:+"$FIX"} ${EXTRA[@]+"${EXTRA[@]}"}; do
   label="$( [ "$r" = "$ROOT" ] && echo vanilla || { [ "$r" = "$FIX" ] && echo fixture || echo "$r"; })"
   if out="$(python3 -c "
@@ -54,6 +54,24 @@ print('\n'.join(p)); sys.exit(1 if p else 0)")"; then
   check "$label: README diagrams up to date" py graph.py "$r" --check-readme
 done
 check "root README diagram up to date" py graph.py "$ROOT" --check-readme
+# The base folder is ~/.psai (and <repo>/.psai/). Exempt: decision records (history), this file (it builds the old
+# layout to test the upgrade) and lines marked "legacy" (the installer's upgrade code).
+old_paths="$(cd "$ROOT" && { git ls-files -co --exclude-standard 2>/dev/null || find . -type f ! -path './.git/*' | sed 's|^\./||'; } \
+  | grep -v -e '^docs/decisions/' -e '^scripts/check\.sh$' -e '^evals/results/' | while IFS= read -r x; do [ -f "$x" ] && printf '%s\0' "$x"; done \
+  | xargs -0 grep -nIE '(^|[^[:alnum:]_])\.harness([^[:alnum:]_-]|$)' 2>/dev/null | grep -v legacy)"
+[ -z "$old_paths" ] && pass "no ~/.harness path left (the base folder is ~/.psai)" || { fail "old ~/.harness paths:"; printf '%s\n' "$old_paths" | sed 's/^/         /'; }
+
+echo "L0 injected nudge (harness.py context)"
+gen="$T/gen"; mkdir -p "$gen"; cp -r "$ROOT/instructions" "$ROOT/skills" "$gen/"; mkdir -p "$gen/workflows"
+[ -n "$FIX" ] && cp -r "$FIX"/workflows "$FIX"/steps "$FIX"/roles "$FIX"/guides "$FIX"/templates "$FIX"/knowledge "$gen/"
+check "generator is deterministic" bash -c "[ \"\$(python3 '$ROOT/scripts/harness.py' context '$gen' '~/.psai')\" = \"\$(python3 '$ROOT/scripts/harness.py' context '$gen' '~/.psai')\" ]"
+for w in "$gen"/workflows/*.yaml; do
+  case "$w" in *.cases.yaml|*/ROUTING.yaml|*'*'*) continue ;; esac
+  n="$(basename "$w" .yaml)"; check "nudge lists workflow $n" bash -c "python3 '$ROOT/scripts/harness.py' context '$gen' | grep -q '^- $n: '"
+done
+check "nudge names the router skill" bash -c "python3 '$ROOT/scripts/harness.py' context '$ROOT' | grep -q 'request-router'"
+check "PSAI_ROLE gives the role-mode nudge, without routing" bash -c "o=\"\$(PSAI_ROLE=doer python3 '$ROOT/scripts/harness.py' context '$gen')\"; grep -q 'You are the doer inside a running psai workflow' <<< \"\$o\" && ! grep -q 'run the request-router skill first' <<< \"\$o\" && ! grep -q '^- example: ' <<< \"\$o\""
+echo "  info nudge size: $(python3 "$ROOT/scripts/harness.py" context "$ROOT" '~/.psai' | wc -w) words vanilla, $(python3 "$ROOT/scripts/harness.py" context "$gen" '~/.psai' | wc -w) with the test workflow"
 if [ "$UPSTREAM" = 1 ]; then
   shipped="$(cd "$ROOT" && git ls-files -co --exclude-standard | python3 -c "
 import sys; sys.path.insert(0, 'scripts'); import harness
@@ -93,18 +111,18 @@ echo x >> "$g/src/app.py"
 check "tests role may not touch product code" bash -c "cd '$g' && ! '$D' '$R/tester.md' $b"
 check "TESTS_ALLOW extends the tests role" bash -c "cd '$g' && TESTS_ALLOW='^src/app\.py$' '$D' '$R/tester.md' $b"
 check "anything role may touch code" bash -c "cd '$g' && '$D' '$R/maker.md' $b"
-check "trace line written" bash -c "cd '$g' && HARNESS_TRACE='$T/trace' '$D' '$R/tester.md' $b; grep -q 'role=tester may_change=tests result=violation' '$T/trace'"
+check "trace line written" bash -c "cd '$g' && PSAI_TRACE='$T/trace' '$D' '$R/tester.md' $b; grep -q 'role=tester may_change=tests result=violation' '$T/trace'"
 
 echo "L0 engine trace (trace.sh)"
 TR="$ROOT/skills/work/trace.sh"; tg="$T/tracerepo"; mkdir -p "$tg"; (cd "$tg" && git init -q)
-trun() { (cd "$tg" && HARNESS_HOME="$FIX" "$TR" example "$1") >/dev/null 2>&1; }
+trun() { (cd "$tg" && PSAI_HOME="$FIX" "$TR" example "$1") >/dev/null 2>&1; }
 check "refuses a run that doesn't begin at start" bash -c "$(declare -f trun); TR='$TR' tg='$tg' FIX='$FIX'; ! trun ready"
 check "records start" bash -c "$(declare -f trun); TR='$TR' tg='$tg' FIX='$FIX'; trun do"
 check "refuses leaving a role node before check-diff" bash -c "$(declare -f trun); TR='$TR' tg='$tg' FIX='$FIX'; ! trun check"
-echo "check-diff role=doer may_change=anything result=ok files=1" >> "$tg/.git/harness-trace"
+echo "check-diff role=doer may_change=anything result=ok files=1" >> "$tg/.git/psai-trace"
 check "refuses a move that isn't an edge" bash -c "$(declare -f trun); TR='$TR' tg='$tg' FIX='$FIX'; ! trun report"
 check "allows the edge after check-diff" bash -c "$(declare -f trun); TR='$TR' tg='$tg' FIX='$FIX'; trun check"
-echo "check-diff role=checker may_change=nothing result=ok files=0" >> "$tg/.git/harness-trace"
+echo "check-diff role=checker may_change=nothing result=ok files=0" >> "$tg/.git/psai-trace"
 check "escalate resumes the asker" bash -c "$(declare -f trun); TR='$TR' tg='$tg' FIX='$FIX'; trun escalate && trun check"
 
 fi
@@ -118,101 +136,105 @@ done
 
 # ---------- L1 installer ----------
 I="$ROOT/install.sh"
-SKILLS="work customize-harness capture-knowledge"
-snap() { (cd "$1" && find . \( -type f -o -type l \) -print0 | sort -z | xargs -0 -I{} sh -c 'printf "%s " "{}"; if [ -L "{}" ]; then readlink "{}"; else md5sum < "{}"; fi') ; }
-run() { env -u XDG_CONFIG_HOME HOME="$1" bash "$I" "${@:2}"; }
+SKILLS="$(cd "$ROOT/skills" && ls -d */ | tr -d / | tr '\n' ' ')"
+snap() { (cd "$1" && find . \( -path ./.claude/plugins -o -path ./.claude/backups -o -name .claude.json -o -name '.claude.json.*' \) -prune -o \( -type f -o -type l \) -print0 | sort -z | xargs -0 -I{} sh -c 'printf "%s " "{}"; if [ -L "{}" ]; then readlink "{}"; else md5sum < "{}"; fi') ; }
+run() { env -u XDG_CONFIG_HOME -u PSAI_HOME HOME="$1" bash "$I" "${@:2}"; }
+has_cli() { command -v "$1" >/dev/null; }
+enabled() { python3 -c "import json,sys; s=json.load(open('$1/.claude/settings.json')); sys.exit(0 if (s.get('enabledPlugins') or {}).get('psai@psai') else 1)" 2>/dev/null; }
 
-echo "L1 install: all four tools"
+echo "L1 install: all four tools, upgrading from v1 and the old ~/.harness base link"
 h="$T/all"
 mkdir -p "$h/.claude/skills" "$h/.config/opencode" "$h/.pi/agent" "$h/.omp/agent" "$h/.agents/skills/foreign"
-printf 'keep me' > "$h/.claude/CLAUDE.md"
-printf '# owner rules\n' > "$h/.config/opencode/AGENTS.md"
+printf 'keep me\n@~/.harness/instructions/global.md\n' > "$h/.claude/CLAUDE.md"          # a v1 import line
+printf '# owner rules\n\n<!-- harness:start -->\nold\n<!-- harness:end -->\n' > "$h/.config/opencode/AGENTS.md"   # a v1 block
+printf '<!-- harness:start -->\nold\n<!-- harness:end -->\n' > "$h/.pi/agent/AGENTS.md"
 echo foreign > "$h/.agents/skills/foreign/SKILL.md"
-# stale v1 links: task-loop and sanitize-pr no longer exist
-ln -s "$h/.harness/skills/task-loop" "$h/.claude/skills/task-loop"
+ln -s "$h/.harness/skills/task-loop" "$h/.claude/skills/task-loop"      # stale v1 skill links
 ln -s "$h/.harness/skills/sanitize-pr" "$h/.agents/skills/sanitize-pr"
+ln -s "$ROOT" "$h/.harness"                                              # the pre-rename base link
+ln -s "$h/.harness/skills/work" "$h/.claude/skills/work"                 # and links made through it
+mkdir -p "$h/.pi/agent/extensions"; ln -s "$h/.harness/plugins/pi/psai.ts" "$h/.pi/agent/extensions/psai.ts"
 before="$(snap "$h")"
-run "$h" --dry-run > "$T/dry.out"
+run "$h" --dry-run > "$T/dry.out" 2>&1
 check "dry-run changes nothing" test "$before" = "$(snap "$h")"
 check "dry-run reports actions" grep -q '^would: link' "$T/dry.out"
-run "$h" > "$T/inst.out" || fail "install exited non-zero"
-check "~/.harness links to repo" test "$(readlink "$h/.harness")" = "$ROOT"
+check "dry-run reports the new link and the old link's removal" bash -c "grep -q '^would: link $h/.psai -> ' '$T/dry.out' && grep -q '^would: unlink old base $h/.harness' '$T/dry.out'"
+run "$h" > "$T/inst.out" 2>&1 || fail "install exited non-zero"
+check "~/.psai links to repo" test "$(readlink "$h/.psai")" = "$ROOT"
+check "old ~/.harness link (to a psai clone) removed" test ! -e "$h/.harness" -a ! -L "$h/.harness"
+check "skill linked through the old path relinked" test "$(readlink "$h/.claude/skills/work")" = "$h/.psai/skills/work"
 for n in $SKILLS; do
   check "claude skill $n" test -f "$h/.claude/skills/$n/SKILL.md"
   check "agents skill $n" test -f "$h/.agents/skills/$n/SKILL.md"
 done
-check "stale v1 link task-loop removed" test ! -L "$h/.claude/skills/task-loop"
-check "stale v1 link sanitize-pr removed" test ! -L "$h/.agents/skills/sanitize-pr"
+check "stale v1 skill links removed" bash -c "test ! -L '$h/.claude/skills/task-loop' && test ! -L '$h/.agents/skills/sanitize-pr'"
 check "foreign skill untouched" grep -qx foreign "$h/.agents/skills/foreign/SKILL.md"
-imp='@~/.harness/instructions/global.md'
-check "claude import once" test "$(grep -Fxc "$imp" "$h/.claude/CLAUDE.md")" = 1
-check "claude content kept" grep -q '^keep me$' "$h/.claude/CLAUDE.md"
-check "omp import once" test "$(grep -Fxc "$imp" "$h/.omp/agent/AGENTS.md")" = 1
-check "pi block once" test "$(grep -c 'harness:start' "$h/.pi/agent/AGENTS.md")" = 1
-check "pi block is global.md" diff <(sed -n '/harness:start/,/harness:end/p' "$h/.pi/agent/AGENTS.md" | sed '1d;$d') "$ROOT/instructions/global.md"
-check "opencode block once" test "$(grep -c 'harness:start' "$h/.config/opencode/AGENTS.md")" = 1
-check "opencode content kept" grep -q '^# owner rules$' "$h/.config/opencode/AGENTS.md"
-check "backup of CLAUDE.md" cmp -s "$h/.claude/CLAUDE.md.harness-backup" <(printf 'keep me')
-check "backup of opencode AGENTS.md" test -f "$h/.config/opencode/AGENTS.md.harness-backup"
-check "no backup for files it created" test ! -e "$h/.pi/agent/AGENTS.md.harness-backup"
+check "v1 import line removed, content kept" bash -c "! grep -q '@~/.harness' '$h/.claude/CLAUDE.md' && grep -qx 'keep me' '$h/.claude/CLAUDE.md'"
+check "v1 opencode block removed, content kept" bash -c "! grep -q harness:start '$h/.config/opencode/AGENTS.md' && grep -qx '# owner rules' '$h/.config/opencode/AGENTS.md'"
+check "v1 pi file (only our block) removed" test ! -e "$h/.pi/agent/AGENTS.md"
+check "pi extension linked" test "$(readlink "$h/.pi/agent/extensions/psai.ts")" = "$h/.psai/plugins/pi/psai.ts"
+check "omp extension linked" test "$(readlink "$h/.omp/agent/extensions/psai.ts")" = "$h/.psai/plugins/omp/psai.ts"
+check "opencode stub imports the live plugin" grep -Fq "$h/.psai/plugins/opencode/psai.js" "$h/.config/opencode/plugin/psai.js"
+if has_cli claude; then
+  check "claude plugin psai@psai enabled, marketplace at ~/.psai" bash -c "$(declare -f enabled); enabled '$h' && grep -q '\"path\": \"$h/.psai\"' '$h/.claude/settings.json'"
+else echo "  skip claude plugin install (claude CLI not found)"; fi
 
 echo "L1 re-run is idempotent"
 after="$(snap "$h")"
-run "$h" > /dev/null
+run "$h" > /dev/null 2>&1
 check "second install changes nothing" test "$after" = "$(snap "$h")"
+ln -s "$h/.psai/skills/old-skill" "$h/.agents/skills/old-skill"
+run "$h" > /dev/null 2>&1
+check "stale skill link removed on update" test ! -L "$h/.agents/skills/old-skill"
 
-echo "L1 update: refresh block, drop stale links"
-sed -i 's/^# psai harness$/# STALE/' "$h/.pi/agent/AGENTS.md"
-ln -s "$h/.harness/skills/old-skill" "$h/.agents/skills/old-skill"
-run "$h" > /dev/null
-check "stale block refreshed" grep -q '^# psai harness$' "$h/.pi/agent/AGENTS.md"
-check "stale skill link removed" test ! -L "$h/.agents/skills/old-skill"
-check "state equals fresh install" test "$after" = "$(snap "$h")"
+echo "L1 the nudge reaches each session (no AI, no network)"
+while IFS= read -r line; do
+  case "$line" in "  ok   "*) pass "${line#  ok   }" ;; "  FAIL "*) fail "${line#  FAIL }" ;; "  skip "*) echo "$line" ;; esac
+done < <("$ROOT/scripts/test-plugins.sh" 2>/dev/null)
 
 echo "L1 uninstall"
-run "$h" --uninstall --dry-run > /dev/null
+run "$h" --uninstall --dry-run > /dev/null 2>&1
 check "uninstall dry-run changes nothing" test "$after" = "$(snap "$h")"
-run "$h" --uninstall > /dev/null || fail "uninstall exited non-zero"
-check "~/.harness removed" test ! -e "$h/.harness"
-check "no harness links left" test -z "$(find "$h/.claude/skills" "$h/.agents/skills" -maxdepth 1 -type l)"
-check "CLAUDE.md content restored" grep -qx 'keep me' "$h/.claude/CLAUDE.md"
-check "opencode AGENTS.md restored" cmp -s "$h/.config/opencode/AGENTS.md" "$h/.config/opencode/AGENTS.md.harness-backup"
-check "created pi file removed" test ! -e "$h/.pi/agent/AGENTS.md"
-check "created omp file removed" test ! -e "$h/.omp/agent/AGENTS.md"
+run "$h" --uninstall > /dev/null 2>&1 || fail "uninstall exited non-zero"
+check "~/.psai removed" test ! -e "$h/.psai" -a ! -L "$h/.psai"
+check "no harness links left" test -z "$(find "$h/.claude/skills" "$h/.agents/skills" "$h/.pi/agent/extensions" "$h/.omp/agent/extensions" -maxdepth 1 -type l)"
+check "opencode stub removed" test ! -e "$h/.config/opencode/plugin/psai.js"
+has_cli claude && check "claude plugin removed" bash -c "$(declare -f enabled); ! enabled '$h'"
+check "owner content survives" bash -c "grep -qx 'keep me' '$h/.claude/CLAUDE.md' && grep -qx '# owner rules' '$h/.config/opencode/AGENTS.md'"
 check "foreign skill survives" test -f "$h/.agents/skills/foreign/SKILL.md"
 
 echo "L1 only tools present"
-h="$T/pionly"; mkdir -p "$h/.pi/agent"; run "$h" > /dev/null
-check "no ~/.claude created" test ! -e "$h/.claude"
-check "no opencode created" test ! -e "$h/.config/opencode"
-check "no omp created" test ! -e "$h/.omp"
-check "pi gets skills" test -f "$h/.agents/skills/work/SKILL.md"
-h="$T/claudeonly"; mkdir -p "$h/.claude"; run "$h" > /dev/null
-check "claude-only: no ~/.agents" test ! -e "$h/.agents"
-check "claude-only: CLAUDE.md created" grep -Fxq "$imp" "$h/.claude/CLAUDE.md"
+h="$T/pionly"; mkdir -p "$h/.pi/agent"; run "$h" > /dev/null 2>&1
+check "no ~/.claude, opencode or omp created" bash -c "test ! -e '$h/.claude' && test ! -e '$h/.config/opencode' && test ! -e '$h/.omp'"
+check "pi gets skills and its extension" bash -c "test -f '$h/.agents/skills/work/SKILL.md' && test -L '$h/.pi/agent/extensions/psai.ts'"
 
 echo "L1 never clobber"
-h="$T/clash"; mkdir -p "$h/.claude/skills/work" "$h/.pi/agent"
-echo mine > "$h/.claude/skills/work/SKILL.md"
-printf 'pi rules\n' > "$h/.pi/agent/CLAUDE.md"
+h="$T/clash"; mkdir -p "$h/.claude/skills/work" "$h/.pi/agent/extensions" "$h/.config/opencode/plugin"
+echo mine > "$h/.claude/skills/work/SKILL.md"; echo mine > "$h/.pi/agent/extensions/psai.ts"; echo mine > "$h/.config/opencode/plugin/psai.js"
 run "$h" > /dev/null 2> "$T/clash.err"
-check "existing skill dir kept" grep -qx mine "$h/.claude/skills/work/SKILL.md"
-check "clash reported" grep -q 'not ours' "$T/clash.err"
-check "pi uses its existing CLAUDE.md" grep -q harness:start "$h/.pi/agent/CLAUDE.md"
-check "pi AGENTS.md not created" test ! -e "$h/.pi/agent/AGENTS.md"
-h="$T/taken"; mkdir -p "$h/.harness" "$h/.claude"
-check "refuses a foreign ~/.harness" test "$(run "$h" >/dev/null 2>&1; echo $?)" = 1
+check "existing skill, extension and plugin kept" bash -c "grep -qx mine '$h/.claude/skills/work/SKILL.md' && grep -qx mine '$h/.pi/agent/extensions/psai.ts' && grep -qx mine '$h/.config/opencode/plugin/psai.js'"
+check "clashes reported" test "$(grep -c 'not ours' "$T/clash.err")" -ge 3
+h="$T/taken"; mkdir -p "$h/.psai" "$h/.claude"
+check "refuses a foreign ~/.psai" test "$(run "$h" >/dev/null 2>&1; echo $?)" = 1
+h="$T/oldforeign"; mkdir -p "$h/.harness/skills/work" "$h/.claude/skills" "$T/elsewhere"; ln -s "$h/.harness/skills/work" "$h/.claude/skills/work"
+run "$h" > /dev/null 2>&1
+check "a foreign ~/.harness folder and links into it are left alone" bash -c "test -d '$h/.harness' && test ! -L '$h/.harness' && test \"\$(readlink '$h/.claude/skills/work')\" = '$h/.harness/skills/work' && test -L '$h/.psai'"
+h="$T/oldlink"; mkdir -p "$h/.claude"; ln -s "$T/elsewhere" "$h/.harness"
+run "$h" > /dev/null 2>&1
+check "a ~/.harness link to something else is left alone" test "$(readlink "$h/.harness")" = "$T/elsewhere"
 
-echo "L1 owner rules (instructions/owner.md)"
+echo "L1 PSAI_HOME overrides the link path"
+h="$T/custom"; c="$h/tools/psai"; mkdir -p "$h/.pi/agent"
+PSAI_HOME="$c" env -u XDG_CONFIG_HOME HOME="$h" bash "$I" > /dev/null 2>&1
+check "link made at \$PSAI_HOME, not ~/.psai" bash -c "test \"\$(readlink '$c')\" = '$ROOT' && test ! -e '$h/.psai'"
+check "skills and pi extension point through \$PSAI_HOME" bash -c "test \"\$(readlink '$h/.agents/skills/work')\" = '$c/skills/work' && test \"\$(readlink '$h/.pi/agent/extensions/psai.ts')\" = '$c/plugins/pi/psai.ts'"
+check "nudge shows \$PSAI_HOME paths" bash -c "PSAI_HOME='$c' HOME='$h' bash '$ROOT/plugins/claude/hooks/session-start.sh' | grep -Fq '$c/skills/request-router/SKILL.md'"
+PSAI_HOME="$c" env -u XDG_CONFIG_HOME HOME="$h" bash "$I" --uninstall > /dev/null 2>&1
+check "uninstall removes the \$PSAI_HOME link and its links" bash -c "test ! -L '$c' && test ! -L '$h/.agents/skills/work' && test ! -L '$h/.pi/agent/extensions/psai.ts'"
+
+echo "L1 owner rules reach the nudge"
 fk="$T/ownerfork"; cp -r "$ROOT" "$fk"; rm -rf "$fk/.git"; echo "- Ask before deleting anything." > "$fk/instructions/owner.md"
-h="$T/owner"; mkdir -p "$h/.claude" "$h/.pi/agent"
-env -u XDG_CONFIG_HOME HOME="$h" bash "$fk/install.sh" > /dev/null
-check "claude imports global.md and owner.md" bash -c "grep -Fxq '$imp' '$h/.claude/CLAUDE.md' && grep -Fxq '@~/.harness/instructions/owner.md' '$h/.claude/CLAUDE.md'"
-check "pi block inlines owner.md" grep -q 'Ask before deleting anything' "$h/.pi/agent/AGENTS.md"
-a1="$(snap "$h")"; env -u XDG_CONFIG_HOME HOME="$h" bash "$fk/install.sh" > /dev/null
-check "owner.md install is idempotent" test "$a1" = "$(snap "$h")"
-env -u XDG_CONFIG_HOME HOME="$h" bash "$fk/install.sh" --uninstall > /dev/null
-check "uninstall removes both imports" test ! -e "$h/.claude/CLAUDE.md"
+check "nudge includes owner.md" bash -c "python3 '$fk/scripts/harness.py' context '$fk' | grep -q 'Ask before deleting anything'"
 
 echo "L1 a fork takes upstream updates without conflicts"
 G="git -c user.email=t@t -c user.name=t"
@@ -256,7 +278,6 @@ if [ "$DISCOVER" = 1 ]; then
   if command -v omp >/dev/null; then
     out="$( (echo '{"type":"get_state"}'; sleep 10) | HOME="$h" ANTHROPIC_API_KEY=dummy timeout 90 omp --mode rpc --no-session --no-title 2>/dev/null)"
     for n in $SKILLS; do check "omp sees $n" grep -q "skill:$n\"" <<< "$out"; done
-    check "omp loads global.md via import" grep -q 'psai harness' <<< "$out"
   fi
   cd "$ROOT" || exit 1
 fi

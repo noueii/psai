@@ -57,7 +57,7 @@ phases:
           answer: Approved.
       max_turns: 6
     expect:
-      path_includes: [ready]
+      ends_terminal: true
       escalations: { max: 1 }
       roles_checked: [maker, tester]
       boundary_held: [tester]

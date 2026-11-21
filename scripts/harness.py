@@ -243,6 +243,54 @@ def check_layout(root, layout_md, dirs=("workflows", "steps", "roles", "guides",
     return errs
 
 
+def context(root, shown=None):
+    """The always-on nudge every harness plugin injects: global.md, owner.md, the routing line, and each workflow's
+    name and `when`. Deterministic: same files, same text. The routing logic itself is the request-router skill."""
+    shown = shown or root
+    parts = [open(os.path.join(root, "instructions", "global.md")).read().strip()]
+    owner = os.path.join(root, "instructions", "owner.md")
+    if os.path.exists(owner):
+        parts.append("## Owner rules\n" + open(owner).read().strip())
+    lines = [f"For every request, run the request-router skill first (`{shown}/skills/request-router/SKILL.md`). "
+             "Skip it only for a quick question or a one-off reply.", "", "Workflows:"]
+    wfs = workflow_files(root)
+    for path in wfs:
+        wf = load(path) or {}
+        lines.append(f"- {wf.get('name', os.path.basename(path)[:-5])}: {' '.join(str(wf.get('when', '')).split())}")
+    if not wfs:
+        lines.append("- none yet (customize-harness creates the first one)")
+    parts.append("\n".join(lines))
+    return "\n\n".join(parts) + "\n"
+
+
+def role_context(root, shown=None, role=None):
+    """The nudge for a role agent (or any subagent) inside a running workflow: the same rules, but no routing, so a
+    role never starts a workflow of its own."""
+    shown = shown or root
+    parts = [open(os.path.join(root, "instructions", "global.md")).read().strip()]
+    owner = os.path.join(root, "instructions", "owner.md")
+    if os.path.exists(owner):
+        parts.append("## Owner rules\n" + open(owner).read().strip())
+    who = f"the {role} inside a running psai workflow" if role else \
+        "a subagent: a role inside a running psai workflow, or a helper another agent started"
+    parts.append(f"## Role mode\nYou are {who}. Do not run request-router or work, and do "
+                 "not start workflows. Do your brief and return. You may still use capture-knowledge "
+                 f"(`{shown}/skills/capture-knowledge/SKILL.md`) and the skills your brief lists.")
+    return "\n\n".join(parts) + "\n"
+
+
+if __name__ == "__main__" and len(sys.argv) > 1 and sys.argv[1] in ("context", "role-context"):
+    # harness.py context|role-context [root] [shown-root]: print the injected text. With $PSAI_ROLE set (work sets
+    # it for the role agents it spawns), or as role-context (a plugin detected a subagent), it is the role-mode text.
+    r = sys.argv[2] if len(sys.argv) > 2 else os.environ.get("PSAI_HOME") or os.path.expanduser("~/.psai")
+    shown = sys.argv[3] if len(sys.argv) > 3 else None
+    role = os.environ.get("PSAI_ROLE", "").strip()
+    if role or sys.argv[1] == "role-context":
+        sys.stdout.write(role_context(r, shown, role or None))
+    else:
+        sys.stdout.write(context(r, shown))
+    sys.exit(0)
+
 if __name__ == "__main__":
     root = sys.argv[1]
     problems = validate(root) + check_layout(root, sys.argv[2] if len(sys.argv) > 2 else os.path.join(root, "LAYOUT.md"))

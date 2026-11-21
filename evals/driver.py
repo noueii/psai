@@ -2,10 +2,10 @@
 """Run eval scenarios headless against a tool, with a scripted fake owner. Called by evals/run.sh.
 
 Each run gets a throwaway directory:
-- harness/   a copy of this harness (vanilla), with the scenario's test content overlaid; HARNESS_HOME points here;
+- harness/   a copy of this harness (vanilla), with the scenario's test content overlaid; PSAI_HOME points here;
 - work/      a copy of the fixture repo, a git repo whose origin is remote.git (a local bare repo);
 - bin/gh     a shim that logs and refuses, so nothing reaches GitHub;
-- trace.log  check-diff.sh's lines (HARNESS_TRACE).
+- trace.log  check-diff.sh's lines (PSAI_TRACE).
 
 The real HOME is only read in place by the tool for its own login. Nothing is copied from it and no harness file
 is installed into it.
@@ -44,6 +44,8 @@ def git_init(path, msg="fixture"):
 def prepare(scn, base):
     h, w = os.path.join(base, "harness"), os.path.join(base, "work")
     shutil.copytree(ROOT, h, ignore=IGNORE, symlinks=True)
+    for rel in ("evals/scenarios/psai", "evals/graders"):  # the agent must not see the expected answers
+        shutil.rmtree(os.path.join(h, rel), ignore_errors=True)
     if scn.get("content"):
         src = os.path.join(ROOT, "evals", "fixtures", scn["content"])
         shutil.copytree(src, h, dirs_exist_ok=True, ignore=shutil.ignore_patterns("README.md"))
@@ -104,13 +106,21 @@ class Claude:
     name = "claude"
 
     def __init__(self, h, cwd, env, model, budget):
+        # The psai plugin (its SessionStart hook injects the nudge), plus a throwaway plugin that exposes the
+        # harness skills the way ~/.claude/skills does in a real install.
+        sp = os.path.join(os.path.dirname(h), "skills-plugin")
+        os.makedirs(os.path.join(sp, ".claude-plugin"), exist_ok=True)
+        with open(os.path.join(sp, ".claude-plugin", "plugin.json"), "w") as f:
+            json.dump({"name": "harness-skills", "version": "0.0.0", "description": "eval-only skills link"}, f)
+        if not os.path.exists(os.path.join(sp, "skills")):
+            os.symlink(os.path.join(h, "skills"), os.path.join(sp, "skills"))
         self.p = subprocess.Popen(
             ["claude", "-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose",
-             "--plugin-dir", h, "--setting-sources", "project", "--no-session-persistence", "--strict-mcp-config",
-             "--permission-mode", "bypassPermissions", "--append-system-prompt-file", os.path.join(h, "instructions", "global.md"),
-             "--add-dir", h, "--model", model, "--max-budget-usd", str(budget)],
+             "--plugin-dir", os.path.join(h, "plugins", "claude"), "--plugin-dir", sp,
+             "--setting-sources", "project", "--no-session-persistence", "--strict-mcp-config",
+             "--permission-mode", "bypassPermissions", "--add-dir", h, "--model", model, "--max-budget-usd", str(budget)],
             cwd=cwd, env=env, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
-        self.texts, self.cost = [], 0.0
+        self.texts, self.sub_calls, self.cost = [], [], 0.0
         self.raw = open(os.path.join(os.path.dirname(h), "stream.jsonl"), "a")
 
     def turn(self, message):
@@ -122,16 +132,23 @@ class Claude:
                 d = json.loads(line)
             except json.JSONDecodeError:
                 continue
-            if d.get("type") == "assistant" and not d.get("parent_tool_use_id"):
-                for c in d["message"].get("content", []):
-                    if c.get("type") == "text":
-                        self.texts.append(c["text"])
-                    elif c.get("type") == "tool_use":  # agents often print [harness] lines with echo
-                        self.texts.append(json.dumps(c.get("input", {})).replace("\\n", "\n"))
+            self._collect(d)
             if d.get("type") == "result":
                 self.cost = d.get("total_cost_usd") or self.cost
                 return self._drain(d.get("result") or "")
         return None
+
+    def _collect(self, d):
+        if d.get("type") != "assistant":
+            return
+        for c in d["message"].get("content", []):
+            if d.get("parent_tool_use_id"):  # a subagent (role agent): keep its tool calls for roles_no_route
+                if c.get("type") == "tool_use":
+                    self.sub_calls.append(json.dumps({"name": c.get("name"), "input": c.get("input", {})}))
+            elif c.get("type") == "text":
+                self.texts.append(c["text"])
+            elif c.get("type") == "tool_use":  # agents often print [harness] lines with echo
+                self.texts.append(json.dumps(c.get("input", {})).replace("\\n", "\n"))
 
     def _drain(self, result, idle=120):
         """If background agents are still running, the session continues on its own: keep reading until idle."""
@@ -151,12 +168,7 @@ class Claude:
                 d = json.loads(line)
             except json.JSONDecodeError:
                 continue
-            if d.get("type") == "assistant" and not d.get("parent_tool_use_id"):
-                for c in d["message"].get("content", []):
-                    if c.get("type") == "text":
-                        self.texts.append(c["text"])
-                    elif c.get("type") == "tool_use":  # agents often print [harness] lines with echo
-                        self.texts.append(json.dumps(c.get("input", {})).replace("\\n", "\n"))
+            self._collect(d)
             if d.get("type") == "result":
                 self.cost = d.get("total_cost_usd") or self.cost
                 result = d.get("result") or ""
@@ -183,10 +195,11 @@ class Omp:
                                        "enableAgentsProject": False, "enableClaudeProject": False,
                                        "enablePiProject": False}}, f)
         args = ["omp", "--mode", "rpc", "--no-session", "--no-title", "--config", cfg,
-                "--append-system-prompt", os.path.join(h, "instructions", "global.md")]
+                "--extension", os.path.join(h, "plugins", "omp", "psai.ts")]
         self.p = subprocess.Popen(args, cwd=cwd, env=env, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                                   stderr=subprocess.DEVNULL, text=True)
         self.texts, self.cost, self.n = [], 0.0, 0
+        self.raw = open(os.path.join(os.path.dirname(h), "stream.jsonl"), "a")
 
     def _send(self, obj):
         self.p.stdin.write(json.dumps(obj) + "\n")
@@ -194,6 +207,7 @@ class Omp:
 
     def _wait(self, pred):
         for line in self.p.stdout:
+            self.raw.write(line)
             try:
                 d = json.loads(line)
             except json.JSONDecodeError:
@@ -204,6 +218,8 @@ class Omp:
                     for c in m.get("content", []) or []:
                         if isinstance(c, dict) and c.get("type") == "text":
                             self.texts.append(c.get("text", ""))
+                        elif isinstance(c, dict) and c.get("type") not in ("thinking", "redacted_thinking"):
+                            self.texts.append(json.dumps(c))  # tool calls, so graders see what was invoked
             if pred(d):
                 return d
         return None
@@ -237,7 +253,7 @@ TOOLS = {"claude": Claude, "omp": Omp}
 
 def run_phase(tool, phase, h, w, base, model, budget):
     cwd = h if phase.get("cwd") == "harness" else w
-    env = dict(os.environ, HARNESS_HOME=h, HARNESS_TRACE=os.path.join(base, "trace.log"),
+    env = dict(os.environ, PSAI_HOME=h, PSAI_TRACE=os.path.join(base, "trace.log"),
                PATH=os.path.join(base, "bin") + os.pathsep + os.environ["PATH"],
                GIT_AUTHOR_NAME="eval", GIT_AUTHOR_EMAIL="eval@local", GIT_COMMITTER_NAME="eval",
                GIT_COMMITTER_EMAIL="eval@local")
@@ -265,6 +281,7 @@ def run_phase(tool, phase, h, w, base, model, budget):
         agent.close()
     text = "\n".join(agent.texts)
     log.update(seconds=round(time.time() - t0), cost=round(agent.cost, 4), final=final, text=text,
+               sub_calls=getattr(agent, "sub_calls", None),
                path=re.findall(r"\[harness\] node: ([A-Za-z0-9_-]+)", text), cwd=cwd)
     return log
 

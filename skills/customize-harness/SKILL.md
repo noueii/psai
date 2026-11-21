@@ -5,7 +5,7 @@ description: "Builds and changes the owner's harness setup WITH the owner: boots
 
 # customize-harness
 
-`H` is the harness root (`$HARNESS_HOME` or `~/.harness`), usually the owner's fork of psai. Everything you write is filed per `H/LAYOUT.md`, and ONLY in places LAYOUT marks as the owner's. Never edit upstream-owned files (skills, scripts, install.sh, evals except new scenarios, LAYOUT.md, folder READMEs, docs, instructions/global.md), so upstream updates merge cleanly. Changes reach the owner as a branch or PR they merge; never merge yourself. If `H` is the live install, work in a separate worktree (`git -C H worktree add ...`), because live sessions read `H`.
+`H` is the harness root (`$PSAI_HOME` or `~/.psai`), usually the owner's fork of psai. Everything you write is filed per `H/LAYOUT.md`, and ONLY in places LAYOUT marks as the owner's. Never edit upstream-owned files (skills, scripts, install.sh, evals except new scenarios, LAYOUT.md, folder READMEs, docs, instructions/global.md), so upstream updates merge cleanly. Changes reach the owner as a branch or PR they merge; never merge yourself. If `H` is the live install, work in a separate worktree (`git -C H worktree add ...`), because live sessions read `H`.
 
 ## How to ask
 Ask the owner ONE question per message, with the fixed block, kind `question`, node `customize` (`H/skills/work/escalation.md`). Offer options with your recommendation first. Don't ask what the owner already told you or what LAYOUT.md settles.
@@ -30,12 +30,12 @@ Ask the owner ONE question per message, with the fixed block, kind `question`, n
 
 ## Add or change one piece
 1. Ask what should change and why, if that isn't clear yet.
-2. Ask the scope: everywhere, this workflow only, or this repo only (`<repo>/.harness/`, same layout, created on first use).
+2. Ask the scope: everywhere, this workflow only, or this repo only (`<repo>/.psai/`, same layout, created on first use).
 3. Pick the place and format from LAYOUT.md.
 
 ## Build
 1. Write the files per LAYOUT.md, using the formats in each folder's README.md. For a role, also create `knowledge/roles/<role>/INDEX.md` and `inbox.md`.
-2. Rules for every task (for example an escalation policy) go in `instructions/owner.md`. Tell the owner to re-run `install.sh` so every tool loads it.
+2. Rules for every task (for example an escalation policy) go in `instructions/owner.md`. Every tool's plugin picks it up live.
 3. For a new workflow, also write:
    - its branch in `workflows/ROUTING.yaml` (create the file for the first workflow);
    - its simulator cases `workflows/<name>.cases.yaml`, covering every edge you added, every loop limit and every escalation;

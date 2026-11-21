@@ -1,16 +1,14 @@
 ---
 name: work
-description: "The harness engine: routes any task through workflows/ROUTING.yaml, then runs the chosen workflow node by node with fresh role agents, diff checks, loop limits, escalations and a final report. Use for every task you are given, before doing the work yourself."
+description: "The harness engine: runs a chosen workflow node by node with fresh role agents, diff checks, loop limits, escalations and a final report. Use when request-router has matched a request to one of the owner's workflows, before doing any of the work yourself."
 ---
 
 # work
 
-`H` is the harness root: `$HARNESS_HOME` if set, else `~/.harness`. A repo may override any file with the same path under `<repo>/.harness/`; the repo's copy wins. The workflow file is the source of truth; this skill only says how to run it.
+`H` is the harness root: `$PSAI_HOME` if set, else `~/.psai`. A repo may override any file with the same path under `<repo>/.psai/`; the repo's copy wins. The workflow file is the source of truth; this skill only says how to run it.
 
 ## 1. Route
-1. Read `H/workflows/ROUTING.yaml` and walk its `tree`. At each `ask`, pick the answer (`if`) that fits the task, then follow its `then`.
-2. A `workflow:` leaf names the workflow to run.
-3. If ROUTING.yaml is missing, you reach an `escalate:` leaf, no answer fits, or you're unsure, escalate (kind `escalation`, node `route`). When there are no workflows at all, offer to set one up with the `customize-harness` skill. Never improvise a workflow.
+The `request-router` skill decides which workflow runs (or none). This file is the engine you read once it has. If you got here without routing, run request-router first. Never improvise a workflow.
 
 ## 2. Run the workflow
 Load `H/workflows/<name>.yaml` and begin at `start`. On entering EVERY node, the first one and `ready` included, first run `H/skills/work/trace.sh <workflow> <id>`. It records the path and refuses a move that isn't an edge of the workflow, or a move on from a role node whose diff wasn't checked. If it refuses, fix the cause; never work around it. Never skip a node because a task looks small: sizing is already in the workflow's edges. Then:
@@ -43,11 +41,11 @@ Special nodes:
 4. Otherwise, commit the role's work: `git add -A && git commit -m "<node>: <summary>"`.
 
 ## 4. Delegation per tool
-Every role agent starts with a FRESH context and runs in the foreground: wait for its result before choosing the edge. Never end your turn while a role agent runs; only human nodes and escalations end a turn before `ready`. Its prompt is: "You are the <r>. Read <brief path> and follow it." followed by the inputs listed in section 2.
+Every role agent starts with a FRESH context and runs in the foreground: wait for its result before choosing the edge. Never end your turn while a role agent runs; only human nodes and escalations end a turn before `ready`. Its prompt starts: "You are the <r> inside a running workflow. Do not run request-router or work, and do not start workflows. Do your brief and return. Read <brief path> and follow it." Then come the inputs listed in section 2. A role may still use capture-knowledge and the skills its brief lists.
 - **Claude Code:** Agent (Task) tool, `subagent_type: general-purpose`, not in the background.
 - **opencode:** `task` tool, `subagent_type: general`.
 - **omp:** `task` tool, agent `task`.
-- **pi:** no subagents. Spawn `pi -p --no-session "<prompt>"` through bash. If that fails, play the role yourself, sequentially: re-read the brief and work only from the spec.
+- **pi:** no subagents. Spawn `PSAI_ROLE=<r> pi -p --no-session "<prompt>"` through bash (`PSAI_ROLE` switches its psai nudge to role mode). If that fails, play the role yourself, sequentially: re-read the brief and work only from the spec.
 
 ## Never
 Never end a turn with a plain question: ask only with the fixed block. Never merge, deploy, push, or post to people unless a step says so and the human approved it. Escalate only by escalation.md and the owner's rules in `H/instructions/owner.md`, if it exists.

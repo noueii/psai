@@ -1,0 +1,23 @@
+name: repeatable-unmatched
+level: L3
+about: >-
+  A repeatable task that no workflow covers (a weekly report, no repo change) escalates and offers customize-harness,
+  instead of improvising a workflow.
+content: harness-content
+fixture: textkit
+task: >-
+  Every Monday from now on, give me a report of the TODO and FIXME comments in this repo, grouped by file. Start
+  with this week's.
+owner:
+  escalations:
+    - match: "."
+      answer: Not now. Stop here.
+  max_turns: 3
+expect:
+  router_invoked: true
+  escalations: { min: 1, max: 1 }
+  escalation_nodes: [route]
+  mentions: [customize-harness]
+  no_workflow: true
+  unchanged: true
+  no_push: true

@@ -3,6 +3,7 @@
 expect keys (all optional):
   path_includes [nodes]   in this order (a subsequence of the printed path)
   path_excludes [nodes]
+  ends_terminal           the path ends at a terminal node, whatever the workflow calls it
   escalations {min,max}   count of kind: escalation blocks
   escalation_nodes [ids]  every escalation came from one of these nodes
   roles_checked [roles]   check-diff ran for each role
@@ -19,6 +20,11 @@ expect keys (all optional):
   commands [cmds]         pass in the harness copy
   branch_prefix           the harness copy has a commit on a branch with this prefix
   only_user_paths         the harness changes touch only paths LAYOUT.md gives to the user (new READMEs allowed)
+  router_invoked          the agent used the request-router skill (Skill tool or reading its SKILL.md)
+  no_workflow             no workflow node was entered
+  answer_mentions [words] the final message mentions each (case-insensitive)
+  roles_no_route          role agents (subagents) never invoked request-router or work, nor ran trace.sh, and the
+                          trace holds one workflow run (Claude Code: needs the subagents' tool calls)
 Unexpected escalations or questions (no scripted answer) always fail.
 """
 import os
@@ -54,6 +60,13 @@ def grade(expect, log, ctx):
     add("no unexpected escalation or question", not log["unexpected"], "; ".join(log["unexpected"]))
     if "path_includes" in expect:
         add("path includes " + ",".join(expect["path_includes"]), _subseq(expect["path_includes"], path), " -> ".join(path))
+    if expect.get("ends_terminal"):
+        sys.path.insert(0, os.path.join(ctx["harness"], "scripts"))
+        import harness
+        terms = {k for f in harness.workflow_files(ctx["harness"])
+                 for k, v in ((yaml.safe_load(open(f)) or {}).get("nodes") or {}).items()
+                 if isinstance(v, dict) and v.get("terminal")}
+        add("path ends at a terminal", bool(path) and path[-1] in terms, " -> ".join(path) + f" (terminals: {sorted(terms)})")
     for n in expect.get("path_excludes", []):
         add(f"path excludes {n}", n not in path, " -> ".join(path))
     if "escalations" in expect:
@@ -115,6 +128,22 @@ def grade(expect, log, ctx):
         brs = [b for b in o.split() if b.startswith(expect["branch_prefix"])]
         ok = bool(brs) and _sh(f"git rev-list --count main..{brs[0]}", h)[1].strip() not in ("", "0")
         add(f"committed on a {expect['branch_prefix']}* branch", ok, o.strip())
+    if expect.get("router_invoked"):
+        t = log.get("text") or ""
+        add("request-router invoked", re.search(r'"skill": "[^"]*request-router"|request-router/SKILL\.md|skill://request-router', t), "")
+    if expect.get("roles_no_route"):
+        calls = log.get("sub_calls")
+        if calls is None:
+            add("role agents did not route", True, "skipped: this tool's driver doesn't record subagent tool calls")
+        else:
+            bad = [c for c in calls if re.search(r'"skill": "[^"]*\b(request-router|work)"|(request-router|/work)/SKILL\.md|work/trace\.sh', c)]
+            runs = sum(t.startswith("workflow ") for t in phase)
+            add("role agents did not route", calls and not bad and runs == 1,
+                f"{len(calls)} subagent tool calls, {len(bad)} routing: {'; '.join(bad)[:300]}; workflow runs in trace: {runs}")
+    if expect.get("no_workflow"):
+        add("no workflow ran", not path, " -> ".join(path))
+    for m in expect.get("answer_mentions", []):
+        add(f"answer mentions {m}", m.lower() in final.lower(), final[-200:])
     if expect.get("only_user_paths"):
         sys.path.insert(0, os.path.join(h, "scripts"))
         import harness  # noqa: E402

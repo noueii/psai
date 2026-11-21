@@ -1,3 +1,3 @@
 # instructions/
 
-`global.md` is the always-loaded core: imported into Claude Code and omp, and inlined into pi and opencode by `install.sh`. At most 250 words, enforced by check.sh. It is upstream-owned: your rules for every task go in `owner.md` (yours; created by `customize-harness`), which install.sh loads along with `global.md`. Re-run `install.sh` after changing either, so the inlined copies refresh.
+`global.md` holds the core rules. It opens the always-on nudge that each tool's plugin injects (`scripts/harness.py context`), and is kept at 120 words or fewer by check.sh. It is upstream-owned. Your rules for every task go in `owner.md`, which is yours and created by `customize-harness`; the nudge includes it. Plugins read both files live, so there's nothing to re-run after a change.

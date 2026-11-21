@@ -11,4 +11,4 @@ psai stack add <this repo's URL or github:owner/repo>
 Each workflow's diagram is in [workflows/GRAPHS.md](workflows/GRAPHS.md) (`psai graph . --update-readme` writes it).
 
 ## Develop it
-`psai new-stack` installed this stack in dev mode: psai reads your working clone. Check it with `psai check .` (also in CI), and try its eval scenarios with `psai eval .`. `psai publish` tags a release.
+`psai new-stack` installed this stack in dev mode: psai reads your working clone. Check it with `psai check .` (also in CI), and try its eval scenarios with `psai eval .`. `psai publish` tags a release; `psai build --standalone` makes packages for people who don't use psai (`dist/`).

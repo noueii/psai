@@ -813,6 +813,9 @@ def stack_main(argv):
     d_.add_argument("name")
     d_.add_argument("path", nargs="?")
     a = ap.parse_args(argv)
+    if a.cmd in ("add", "remove", "update", "sync", "override") and res.Home().bundle:
+        print(f"psai stack {a.cmd}: this is a standalone build of one stack; install psai to manage stacks", file=sys.stderr)
+        return 1
     try:
         if a.cmd == "add":
             return add(a.src, a.ref, a.as_, a.dev, a.yes)

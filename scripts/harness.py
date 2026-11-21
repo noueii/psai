@@ -382,7 +382,7 @@ if __name__ == "__main__" and len(sys.argv) > 1 and sys.argv[1] == "skills":
 if __name__ == "__main__" and len(sys.argv) > 1 and sys.argv[1] in ("context", "role-context"):
     # harness.py context|role-context [root] [shown-root]: print the injected text. With $PSAI_ROLE set (work sets
     # it for the role agents it spawns), or as role-context (a plugin detected a subagent), it is the role-mode text.
-    r = sys.argv[2] if len(sys.argv) > 2 else os.environ.get("PSAI_HOME") or os.path.expanduser("~/.psai")
+    r = sys.argv[2] if len(sys.argv) > 2 else res.default_root()
     shown = sys.argv[3] if len(sys.argv) > 3 else None
     role = os.environ.get("PSAI_ROLE", "").strip()
     if role or sys.argv[1] == "role-context":

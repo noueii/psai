@@ -24,7 +24,8 @@ import sys
 
 
 def root_dir(root=None):
-    return root or os.environ.get("PSAI_HOME") or os.path.expanduser("~/.psai")
+    import resolve  # noqa: PLC0415
+    return root or resolve.default_root()
 
 
 def home(root=None):

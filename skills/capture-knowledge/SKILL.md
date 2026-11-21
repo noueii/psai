@@ -1,6 +1,6 @@
 ---
 name: capture-knowledge
-description: "Records a fact, a decision or a proposed rule as a dated, sourced entry in a knowledge inbox, and promotes inbox entries by PR. Use when you learn something true about a repo or tool, when you decide something without escalating, when the owner states or corrects a preference, or when you think a rule should change future work."
+description: "Records a fact, a decision or a proposed rule as a dated, sourced entry in a knowledge inbox; the retro promotes them by PR. Use when you learn something true about a repo or tool, when you decide something without escalating, when the owner states or corrects a preference, or when you think a rule should change future work."
 ---
 
 # capture-knowledge
@@ -29,10 +29,10 @@ Append to the end of the inbox, creating it (and `knowledge/INDEX.md`) with a on
 
 Use `proposed-rule` for anything you think should change future work. It stays a proposal until the owner accepts it.
 
-## Promote (by PR only)
-Inbox entries stay as local, uncommitted edits. Promote stable ones in a separate worktree off `origin/main`; never switch branches in the live `H`:
+## Promote (at the retro, by PR only)
+Inbox entries stay as local, uncommitted edits; nothing goes to GitHub while a task runs. The retro skill, at the end of the task, promotes stable entries in the stage worktree (`psai sync stage`), never in the live `H`:
 - a fact goes to `knowledge/facts/<topic>.md`;
 - a decision goes to `knowledge/decisions/YYYY-MM-DD-<slug>.md`;
 - an accepted proposed rule goes into a guide, role or step, using `customize-harness`.
 
-Update `knowledge/INDEX.md`, commit, push, and open a PR titled `knowledge: <summary>`. The owner merges it. Afterwards, delete the promoted entries from the local inbox.
+It updates `knowledge/INDEX.md` there and deletes the promoted entries from the live inbox; the retro's one PR (or sync's) carries it all. The owner merges it.

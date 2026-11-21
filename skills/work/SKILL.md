@@ -23,7 +23,7 @@ Load `H/workflows/<name>.yaml` and begin at `start`. On entering EVERY node, the
 
   With `fan_out`, start one fresh agent per lens, never merging lenses. Run section 3 after EVERY role agent, fan-out agents included.
 - **`human: true`:** ask the human with the fixed block, kind `review` (escalation.md), and wait.
-- **`skill: <s>`:** use that skill for the step.
+- **`skill: <s>`:** use that skill for the step (`retro`, `sync`, or any other). A skill node may have no `step:`.
 - **No `role:`** (e.g. running checks, writing the report): do the step yourself. Never delegate it, and never skip it.
 
 Then choose the edge:
@@ -33,7 +33,7 @@ Then choose the edge:
 Special nodes:
 - **`escalate`:** emit the block (kind `escalation`, with the asking node), wait for the answer, then resume the node that asked (`return: caller`).
 - **`handoff: <wf>`:** continue in that workflow at its start, carrying the spec.
-- **`terminal`:** run `trace.sh` for it, then end with the final report written by the step before it as your final message.
+- **`terminal`:** run `trace.sh` for it. If this run passed no `retro` node, run the retro skill now (always: it's how the harness learns). Then end with the final report written by the step before it, plus the retro's `## Retro` section, as your final message.
 
 ## 3. Role boundaries
 1. Before each role, commit pending work so the tree is clean. Record `base=$(git rev-parse HEAD)`.
@@ -49,4 +49,4 @@ Every role agent starts with a FRESH context and runs in the foreground: wait fo
 - **pi:** no subagents. Spawn `PSAI_ROLE=<r> pi -p --no-session "<prompt>"` through bash (`PSAI_ROLE` switches its psai nudge to role mode). If that fails, play the role yourself, sequentially: re-read the brief and work only from the spec.
 
 ## Never
-Never end a turn with a plain question: ask only with the fixed block. Never merge, deploy, push, or post to people unless a step says so and the human approved it. Escalate only by escalation.md and the owner's rules in `H/instructions/owner.md`, if it exists.
+Never end a turn with a plain question: ask only with the fixed block. Never merge, deploy, push, or post to people unless a step says so and the human approved it; the retro and sync skills' one PR branch to the owner's fork is the exception. Escalate only by escalation.md and the owner's rules in `H/instructions/owner.md`, if it exists.

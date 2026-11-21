@@ -4,7 +4,7 @@
 Each run gets a throwaway directory:
 - harness/   a copy of this harness (vanilla), with the scenario's test content overlaid; PSAI_HOME points here;
 - work/      a copy of the fixture repo, a git repo whose origin is remote.git (a local bare repo);
-- bin/gh     a shim that logs and refuses, so nothing reaches GitHub;
+- bin/gh     a shim that logs and refuses, so nothing reaches GitHub; bin/psai runs the copy's psai command;
 - trace.log  check-diff.sh's lines (PSAI_TRACE).
 
 The real HOME is only read in place by the tool for its own login. Nothing is copied from it and no harness file
@@ -28,7 +28,7 @@ sys.path.insert(0, os.path.join(HERE, "graders"))
 import grade  # noqa: E402
 
 BLOCK = re.compile(r"<<<HARNESS\s*\n(.*?)\n\s*>>>", re.S)
-IGNORE = shutil.ignore_patterns(".git", "results", "__pycache__")
+IGNORE = shutil.ignore_patterns(".git", "results", "__pycache__", ".state", ".skills-cache")
 
 
 def sh(cmd, cwd, env=None, check=True):
@@ -46,12 +46,19 @@ def prepare(scn, base):
     shutil.copytree(ROOT, h, ignore=IGNORE, symlinks=True)
     for rel in ("evals/scenarios/psai", "evals/graders"):  # the agent must not see the expected answers
         shutil.rmtree(os.path.join(h, rel), ignore_errors=True)
-    if scn.get("content"):
-        src = os.path.join(ROOT, "evals", "fixtures", scn["content"])
+    content = scn.get("content")
+    for c in [content] if isinstance(content, str) else (content or []):  # overlays, in order
+        src = os.path.join(ROOT, "evals", "fixtures", c)
         shutil.copytree(src, h, dirs_exist_ok=True, ignore=shutil.ignore_patterns("README.md"))
     for rel in scn.get("strip") or []:  # e.g. hide the test content from a bootstrap run
         shutil.rmtree(os.path.join(h, rel), ignore_errors=True)
     git_init(h, "harness")
+    # this machine's state for the copy: installed at HEAD, migrations done (never run against the real HOME), and a
+    # drift baseline of the real HOME (read only), so sync has nothing to update or adopt unless the run creates it
+    sh(f"python3 scripts/sync.py installed --record --root {h} && python3 scripts/sync.py baseline --root {h}", h)
+    mig = {os.path.basename(m): "eval" for m in sorted(os.listdir(os.path.join(h, "migrations"))) if m.endswith(".sh")}
+    with open(os.path.join(h, ".state", "migrations.json"), "w") as f:
+        json.dump(mig, f)
     shutil.copytree(os.path.join(ROOT, "evals", "fixtures", scn["fixture"]), w, ignore=IGNORE)
     git_init(w)
     sh(f"git init -q --bare {base}/remote.git && git remote add origin {base}/remote.git && git push -q origin main", w)
@@ -60,6 +67,9 @@ def prepare(scn, base):
     with open(os.path.join(b, "gh"), "w") as f:
         f.write(f'#!/bin/sh\necho "gh $*" >> {base}/gh.log\necho "gh is disabled in evals" >&2\nexit 1\n')
     os.chmod(os.path.join(b, "gh"), 0o755)
+    with open(os.path.join(b, "psai"), "w") as f:
+        f.write(f'#!/bin/sh\nexec python3 {h}/scripts/psai.py "$@"\n')
+    os.chmod(os.path.join(b, "psai"), 0o755)
     return h, w
 
 
@@ -258,10 +268,11 @@ TOOLS = {"claude": Claude, "omp": Omp}
 
 def run_phase(tool, phase, h, w, base, model, budget):
     cwd = h if phase.get("cwd") == "harness" else w
-    env = dict(os.environ, PSAI_HOME=h, PSAI_TRACE=os.path.join(base, "trace.log"),
+    env = dict(os.environ, PSAI_HOME=h, PSAI_TRACE=os.path.join(base, "trace.log"), PSAI_EVAL="1",
                PATH=os.path.join(base, "bin") + os.pathsep + os.environ["PATH"],
                GIT_AUTHOR_NAME="eval", GIT_AUTHOR_EMAIL="eval@local", GIT_COMMITTER_NAME="eval",
                GIT_COMMITTER_EMAIL="eval@local")
+    env.pop("PSAI_STATE", None)  # the copy's own .state
     owner = phase.get("owner") or {}
     log = {"reviews": 0, "questions": 0, "escalations": [], "unexpected": [], "turns": 0}
     agent = TOOLS[tool](h, cwd, env, model, budget)
@@ -291,16 +302,27 @@ def run_phase(tool, phase, h, w, base, model, budget):
     return log
 
 
-def use_customize_branch(h):
-    """customize-harness commits on customize/<slug>, maybe in another worktree: grade and run later phases on it."""
-    br = [b for b in sh("git branch --format='%(refname:short)'", h).stdout.split() if b.startswith("customize/")]
-    if not br:
-        return
-    for line in sh("git worktree list --porcelain", h).stdout.split("\n\n"):
-        wt = line.split("\n")[0].replace("worktree ", "")
-        if wt and os.path.realpath(wt) != os.path.realpath(h) and f"branch refs/heads/{br[0]}" in line:
-            sh(f"git worktree remove --force {wt}", h, check=False)
-    sh(f"git checkout -q {br[0]}", h, check=False)
+def use_staged(h):
+    """customize-harness stages in the stage worktree; a retro may already have built a psai/ branch from it. Stand in
+    for the owner merging it: put the staged files into the copy (uncommitted) or check out that branch, so grading
+    and later phases see them. -> what was found: {stage: [files], branches: [psai/...], other: [non-psai branches]}"""
+    sys.path.insert(0, os.path.join(h, "scripts"))
+    import sync  # noqa: PLC0415
+    staged = sync.stage_changes(h)
+    brs = sh("git branch --format='%(refname:short)'", h).stdout.split()
+    found = {"stage": sorted(staged), "branches": [b for b in brs if b.startswith("psai/")],
+             "other": [b for b in brs if b != "main" and not b.startswith("psai/")]}
+    for p, src in staged.items():
+        dst = os.path.join(h, p)
+        if src is None:
+            if os.path.lexists(dst):
+                os.remove(dst)
+        else:
+            os.makedirs(os.path.dirname(dst), exist_ok=True)
+            shutil.copyfile(src, dst)
+    if not staged and found["branches"]:
+        sh(f"git checkout -q {found['branches'][-1]}", h, check=False)
+    return found
 
 
 def run_scenario(path, tool, model, budget, keep):
@@ -314,9 +336,10 @@ def run_scenario(path, tool, model, budget, keep):
     for ph in phases:
         open(os.path.join(base, "trace.log"), "a").write(f"phase {ph.get('name', 'main')}\n")
         log = run_phase(tool, ph, h, w, base, model, budget)
-        use_customize_branch(h)
+        branches = sh("git branch --format='%(refname:short)'", h).stdout.split()
+        found = use_staged(h) if ph.get("cwd") == "harness" else {}
         checks = grade.grade(ph.get("expect") or {}, log, dict(base=base, harness=h, work=w, refs0=refs0, head0=head0,
-                                                            remote_refs=remote_refs(base)))
+                                                            remote_refs=remote_refs(base), branches=branches, staged=found))
         ok = ok and all(c[1] for c in checks)
         tr = open(os.path.join(base, "trace.log")).read().split(f"phase {ph.get('name', 'main')}\n")[-1].splitlines()
         traced = [t.split()[1] for t in tr if t.startswith("node ")]

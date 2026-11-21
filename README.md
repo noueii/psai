@@ -12,20 +12,24 @@ A tool-agnostic agent harness for Claude Code, opencode, pi and oh-my-pi (omp). 
    ./install.sh --dry-run
    ./install.sh
    ```
-3. Ask any agent to set up your harness. The `customize-harness` skill interviews you one question at a time, then builds your first workflow with its steps, roles, guides and templates. Each piece is filed per [LAYOUT.md](LAYOUT.md), validated, and committed on a `customize/` branch for you to merge.
+3. Ask any agent to set up your harness. The `customize-harness` skill interviews you one question at a time, then builds your first workflow with its steps, roles, guides and templates. Each piece is filed per [LAYOUT.md](LAYOUT.md), validated and staged; at the end of the task the `retro` skill turns it into one PR on your fork for you to merge.
 
-From then on, give agents tasks as usual. `work` routes each task to one of your workflows and runs it.
+From then on, give agents tasks as usual. `work` routes each task to one of your workflows and runs it, then runs a retro.
 
-## Get upstream updates
+`install.sh` also links the `psai` command into `~/.local/bin`: `psai status`, `psai doctor`, `psai sync`, `psai retro`, `psai update`, `psai adopt <skill>`, `psai check`, `psai context`, `psai graph`, `psai simulate`, `psai install`.
+
+## Get updates: the sync skill
 ```sh
-git remote add upstream <psai-upstream-url>   # once
-git pull upstream main
-./install.sh
+git remote add upstream <psai-upstream-url>   # once, in your clone
 ```
+Then either end your workflows with a `sync` node (`handover → retro → sync → ready`; customize-harness offers it) or ask any agent to sync. Sync checks first, deterministically and with a short-timeout fetch: new commits on your fork or upstream, an install that doesn't match HEAD, pending migrations, sessions or staged changes not yet in a PR, tool drift. Nothing out of sync: it stops at zero cost. Otherwise it fast-forwards your live clone (only fast-forwards, keeping your local inbox entries), re-installs, runs pending migrations, adopts drift worth keeping by staging it, and opens ONE PR for this machine (`psai/sync-<host>-<date>`) with everything staged or captured, plus a merge of new upstream commits. A conflict changes nothing and reports "psai update waiting: needs you".
+
+**Trade-off:** psai has no background job, no cron and no startup check. It updates only when a workflow runs sync, or when you ask an agent to sync (`psai sync` runs the deterministic part by hand).
+
 psai never ships files in the places you own (your workflows, steps, roles, guides, templates, knowledge, `my-skills/`, `skills.yaml` and `instructions/owner.md`). Upstream changes therefore merge without conflicts. `scripts/check.sh` tests exactly that.
 
 ## How it works
-- **The nudge:** each tool gets a plugin that injects a short, live always-on text (about 130 words plus a line per workflow): the core rules, your `owner.md`, "run the request-router skill first", your workflows' names and `when`, "to add or change a skill, use customize-harness", and how many skills in your tool folders psai doesn't manage.
+- **The nudge:** each tool gets a plugin that injects a short, live always-on text (about 170 words plus a line per workflow): the core rules, your `owner.md`, "run the request-router skill first", your workflows' names and `when`, "to add or change a skill, use customize-harness", when to run the retro outside a workflow, how many skills in your tool folders psai doesn't manage, and how many earlier sessions still wait for a retro (only when some do).
 - **`request-router`:** decides each request. A matching workflow runs; a repeatable task with no workflow escalates and offers `customize-harness`; a one-off is handled normally.
 - **`work`:** the engine, read once a workflow is chosen. It runs the workflow node by node:
   - a fresh agent per role;
@@ -36,7 +40,11 @@ psai never ships files in the places you own (your workflows, steps, roles, guid
 
   `trace.sh` refuses any move that isn't an edge of the workflow.
 - **`customize-harness`:** bootstraps your first workflow, and later adds or changes one piece. It offers proven design patterns as options, never as defaults.
-- **`capture-knowledge`:** agents record facts, decisions and proposed rules in inboxes. Promotion happens by PR, which you merge.
+- **`capture-knowledge`:** agents record facts, decisions and proposed rules in inboxes. Nothing goes to GitHub while a task runs.
+- **`retro`:** at the end of a task (`work` always runs it after a workflow; outside workflows the agent runs it when it captured or staged something; a session that ended without one is flagged in the next session's nudge). It reads the run (trace, inbox entries, escalations, loops at their limit, rejected diffs, review findings, time and tokens), ranks findings, stages what's worth keeping and opens ONE PR on your fork with everything from the task, the report as its description. Nothing worth changing: no PR.
+- **`sync`:** runs only where a workflow has a `sync` node, or when you ask. See "Get updates".
+- **Session ledger:** each tool's plugin records every session locally in `.state/sessions/` (git-ignored): tool, project, start and end, workflows, escalations, retro done, captured counts, drift, psai version. Retro and sync read and mark it; `psai status` and `psai doctor` summarize it.
+- **Migrations:** `migrations/NNNN-*.sh` run once per machine from install.sh (and so from sync and `psai update`).
 - **Skills:** roles and steps name the skills they need (`skills: {required, optional}`); `work` lists them in each role agent's brief. Your own skills live in `my-skills/`, other people's are pinned in `skills.yaml`, and `harness.py skills` shows every skill your tools can see. Skills psai doesn't manage are reported, never blocked; `install.sh --adopt <name>` brings one in. See [my-skills/README.md](my-skills/README.md).
 
 ## Layers
@@ -49,16 +57,18 @@ psai never ships files in the places you own (your workflows, steps, roles, guid
 | template | the exact output format, with an example | you | when a step attaches it |
 | knowledge | what's true, and what was decided and why | agents, via the inbox | on demand, via `knowledge/INDEX.md` |
 
-During a task, agents write only to knowledge inboxes and to the task's PR description or report. Everything else changes through `customize-harness`, as a PR you approve. Precedence, most specific wins: `<repo>/.psai/` > the step or role and its `read:` files > `instructions/owner.md` > `instructions/global.md`.
+During a task, agents write only to knowledge inboxes and to the task's report. Everything else changes through `customize-harness`, which only stages it (in `.state/stage`, a separate worktree); the retro's (or sync's) one PR carries it, and you approve it. Precedence, most specific wins: `<repo>/.psai/` > the step or role and its `read:` files > `instructions/owner.md` > `instructions/global.md`.
 
 ## Structure
 ```
 instructions/global.md   core rules in the injected nudge (≤120 words); your rules go in instructions/owner.md
 plugins/                 one per tool (claude, pi, omp, opencode); each injects `scripts/harness.py context` live
-skills/                  request-router, work (engine, escalation format, check-diff.sh, trace.sh), customize-harness (+ patterns/), capture-knowledge
+skills/                  request-router, work (engine, escalation format, check-diff.sh, trace.sh), customize-harness (+ patterns/), capture-knowledge, retro, sync
 workflows/ steps/ roles/ guides/ templates/ knowledge/ my-skills/   yours; empty in vanilla (README only)
 skills.yaml              yours, not shipped: pinned skills from other people, and an ignore list
-scripts/                 check.sh, simulate.py, graph.py, harness.py
+scripts/                 psai.py (the `psai` command), check.sh, simulate.py, graph.py, harness.py, skills.py, ledger.py, sync.py, retro.py, test-*.sh
+migrations/              NNNN-<slug>.sh, run once per machine
+.state/                  local, git-ignored: the session ledger, the stage worktree, retro reports, install and migration records
 evals/                   run.sh, driver.py, fixtures/, scenarios/, graders/, results/
 docs/decisions/          ADRs about psai itself
 LAYOUT.md                where every kind of file goes, and who owns it
@@ -106,8 +116,9 @@ It installs only for tools whose config folder exists (`~/.claude`, `~/.config/o
   - **pi:** links the extension `~/.pi/agent/extensions/psai.ts`;
   - **omp:** links the extension `~/.omp/agent/extensions/psai.ts`;
   - **opencode:** writes a stub `~/.config/opencode/plugin/psai.js` that imports the live plugin;
+- links the `psai` command, `~/.local/bin/psai` (`PSAI_BIN` changes the folder), runs pending migrations and records the installed commit in `.state/` (`PSAI_STATE` moves it);
 - removes v1's import lines and marked blocks from `CLAUDE.md` and `AGENTS.md` files, keeping everything else.
-- removes the legacy base link `~/.harness` (its name before the rename to `~/.psai`) if it is a link to a psai clone, and relinks what went through it; anything else at that path is left alone.
+- migration 0001 removes the legacy base link `~/.harness` (its name before the rename to `~/.psai`) if it is a link to a psai clone, after install relinks what went through it; anything else at that path is left alone.
 
 It backs up `~/.claude/settings.json` before the plugin CLI first changes it. opencode reads both skill folders, so it loads each skill once and logs a `duplicate skill name` warning; `OPENCODE_DISABLE_CLAUDE_CODE_SKILLS=1` silences it. **Uninstall:** `./install.sh --uninstall` (backups are kept).
 
@@ -120,5 +131,6 @@ evals/run.sh                  # L3 + L4 AI evals, headless, on throwaway copies 
 - **L0:** LAYOUT placement, every README, frontmatter, every `step`/`read:`/`role` path, and the graph rules: reachable, ends at ready, escalate or a handoff, and every automatic loop has a limit. Also checks that diagrams are fresh, that `check-diff.sh` enforces `may_change`, and that `trace.sh` enforces the graph.
 - **L1:** install, update, uninstall, dry-run, idempotency, no clobbering, stale-link and v1 cleanup for all four tools. `scripts/test-plugins.sh` proves, with no AI and no network, that each plugin's nudge reaches the session. Also checks that a fork with user content pulls an upstream change to every upstream-owned file without conflicts.
 - **Skills (L0/L1):** the registry in a temp HOME with a skill in every location, `skills:` frontmatter, pinned `skills.yaml` entries fetched from a local git repo (no network), the ignore list, adopting your own skill and a pack's, and the checks (a required skill that resolves nowhere fails; duplicates and project-only required skills warn).
+- **Sync, retro, ledger (L0/L1):** `scripts/test-sync.sh` in temp HOMEs against bare local git remotes, no network: the out-of-sync check against crafted states (behind, install drift, unsynced, staged, drift, upstream, nothing to do → a no-op), migrations running once, the ff-only update keeping inbox entries, conflicts and divergence changing nothing, the ledger written by each plugin's hooks, one PR branch per run, and retro handing its report to a following sync node. `test-plugins.sh` also checks that real pi, omp and opencode sessions write a ledger record.
 - **L2:** `simulate.py` walks each workflow with scripted outcomes (`workflows/<name>.cases.yaml`).
 - **L3/L4:** see [evals/README.md](evals/README.md).

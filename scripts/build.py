@@ -8,9 +8,18 @@ A bundle is itself a psai home: `framework/` (the runtime, at this framework's v
 content), `bundle.yaml` (what was built), and an `overlay/` and `state/` created on first use. In a bundle, PSAI_HOME
 is the bundle (the `psai` there finds it on its own), stack management is disabled, and the retro's suggestions go to
 the stack's author.
-  claude   dist/<name>/claude/: .claude-plugin/plugin.json, hooks/ (the SessionStart/SubagentStart/SessionEnd hooks of
-           plugins/claude, pointed at the bundle), skills/ (the framework's and the stack's own), and the home above;
-           plus dist/<name>/.claude-plugin/marketplace.json, so `claude plugin marketplace add <dist/name>` works.
+  claude          dist/<name>/claude/: .claude-plugin/plugin.json, hooks/ (plugins/claude's, pointed at the bundle),
+                  skills/ (the framework's and the stack's own) and the home above; plus
+                  dist/<name>/.claude-plugin/marketplace.json (`claude plugin marketplace add <dist/name>`).
+  agent-plugins   dist/<name>/agent-plugins/: the open plugin format Cursor reads (.cursor-plugin/plugin.json, skills/,
+                  rules/psai.mdc: the nudge as an always-applied rule, built from the bundle); plus
+                  dist/<name>/.cursor-plugin/marketplace.json.
+  pi              dist/<name>/pi/: a pi package (package.json `pi`: extensions/psai.ts, skills/); `pi install <dir>`.
+  omp             dist/<name>/omp/: an omp plugin (package.json `omp`: extensions/psai.ts; skills/); `omp plugin
+                  install <dir>`, or `--plugin-dir`.
+  opencode        dist/<name>/opencode/: install.sh (--dry-run, --uninstall) writes a stub plugin into
+                  ~/.config/opencode/plugin/ and links the skills into ~/.config/opencode/skills/.
+The pi, omp and opencode extensions are plugins/<tool>'s, with their one bootstrap pointed at the bundle.
 --check builds into a temp folder and exits 1 when the committed dist/ differs (stack.yaml `build.commit_dist`).
 """
 import argparse
@@ -29,7 +38,7 @@ sys.path.insert(0, HERE)
 import resolve as res  # noqa: E402
 
 FW = os.path.dirname(HERE)
-TARGETS = ("claude",)
+TARGETS = ("claude", "agent-plugins", "pi", "omp", "opencode")
 RUNTIME = ("scripts", "skills", "instructions", "schemas", "template", "VERSION", "LAYOUT.md")
 IGNORE = shutil.ignore_patterns(".git", "__pycache__", "*.pyc", "dist", "results", ".state", ".skills-cache")
 
@@ -119,7 +128,151 @@ def build_claude(out, src, meta):
     return p
 
 
-BUILDERS = {"claude": build_claude}
+def bundled_extension(tool, dest):
+    """plugins/<tool>'s extension with its one bootstrap pointed at the bundle it ships in (one folder up), creating
+    the bundle's overlay on first use."""
+    ext = "psai.js" if tool == "opencode" else "psai.ts"
+    text = open(os.path.join(FW, "plugins", tool, ext)).read()
+    ts = ": string" if ext.endswith(".ts") else ""
+    pairs = [
+        ('import { join } from "node:path";\n',
+         'import { join } from "node:path";\nimport { fileURLToPath } from "node:url";\n'),
+        ('  return process.env.PSAI_HOME || join(homedir(), ".psai"); // psai-bootstrap',
+         '  return join(fileURLToPath(new URL(".", import.meta.url)), ".."); // psai-bootstrap: the bundle this file ships in'),
+        ('  const shown = process.env.PSAI_HOME ? home() : "~/.psai";', '  const shown = home();'),
+        (f'function psai(){ts} {{\n',
+         f'function psai(){ts} {{\n  if (!existsSync(join(home(), "overlay"))) {{ // the bundle\'s overlay, made on first use\n'
+         f'    try {{ execFileSync("python3", [join(home(), "framework", "scripts", "stacks.py"), "overlay", "--home", home()], '
+         f'{{ stdio: "ignore" }}); }} catch {{}}\n  }}\n'),
+    ]
+    for a, b in pairs:
+        if a not in text:
+            raise BuildError(f"plugins/{tool}/{ext} changed: can't point its bootstrap at the bundle ({a.strip()[:40]})")
+        text = text.replace(a, b)
+    text = f"// Built by psai build --standalone from plugins/{tool}/{ext}; its home is this bundle.\n" + text
+    os.makedirs(os.path.dirname(dest), exist_ok=True)
+    with open(dest, "w") as f:
+        f.write(text)
+
+
+def nudge(home, shown):
+    """The nudge as the bundle would inject it, for targets that take static text (an always-applied rule)."""
+    p = subprocess.run([sys.executable, os.path.join(home, "framework", "scripts", "harness.py"), "context", home, shown],
+                       capture_output=True, text=True, env=dict(os.environ, PSAI_HOME=home, PSAI_STATE=os.path.join(
+                           tempfile.mkdtemp(), "state"), HOME=tempfile.mkdtemp()))
+    if p.returncode:
+        raise BuildError(f"can't render the nudge: {p.stderr.strip()[-300:]}")
+    return p.stdout
+
+
+def build_agent_plugins(out, src, meta):
+    name = meta["name"]
+    p = os.path.join(out, name, "agent-plugins")
+    make_home(p, src, meta)
+    desc = " ".join(str(meta.get("description", "")).split())
+    author = {"name": (meta.get("author") or {}).get("name") or name}
+    os.makedirs(os.path.join(p, ".cursor-plugin"))
+    m = {"name": name, "version": str(meta.get("version")), "description": desc + " (a psai stack, standalone)",
+         "author": author, "skills": "./skills/", "rules": "./rules/"}
+    if meta.get("license"):
+        m["license"] = meta["license"]
+    with open(os.path.join(p, ".cursor-plugin", "plugin.json"), "w") as f:
+        json.dump(m, f, indent=2)
+        f.write("\n")
+    skills_into(os.path.join(p, "skills"), src)
+    os.makedirs(os.path.join(p, "rules"))
+    text = nudge(p, "<this plugin's folder>")
+    with open(os.path.join(p, "rules", "psai.mdc"), "w") as f:
+        f.write(f"---\ndescription: psai: route every request through the {name} stack's workflows\nalwaysApply: true\n---\n"
+                + text)
+    mk = os.path.join(out, name, ".cursor-plugin")
+    os.makedirs(mk, exist_ok=True)
+    with open(os.path.join(mk, "marketplace.json"), "w") as f:
+        json.dump({"name": name, "owner": author, "metadata": {"description": desc},
+                   "plugins": [{"name": name, "source": "./agent-plugins", "description": desc}]}, f, indent=2)
+        f.write("\n")
+    return p
+
+
+def _package_json(p, meta, key, manifest):
+    name = meta["name"]
+    pkg = {"name": f"psai-{name}", "version": str(meta.get("version")), "type": "module",
+           "description": " ".join(str(meta.get("description", "")).split()) + " (a psai stack, standalone)",
+           "keywords": [f"{key}-package" if key == "pi" else "omp-plugin", "psai"], key: manifest}
+    if meta.get("license"):
+        pkg["license"] = meta["license"]
+    with open(os.path.join(p, "package.json"), "w") as f:
+        json.dump(pkg, f, indent=2)
+        f.write("\n")
+
+
+def build_pi(out, src, meta):
+    p = os.path.join(out, meta["name"], "pi")
+    make_home(p, src, meta)
+    bundled_extension("pi", os.path.join(p, "extensions", "psai.ts"))
+    skills_into(os.path.join(p, "skills"), src)
+    _package_json(p, meta, "pi", {"extensions": ["./extensions/psai.ts"], "skills": ["./skills"]})
+    return p
+
+
+def build_omp(out, src, meta):
+    p = os.path.join(out, meta["name"], "omp")
+    make_home(p, src, meta)
+    bundled_extension("omp", os.path.join(p, "extensions", "psai.ts"))
+    skills_into(os.path.join(p, "skills"), src)
+    _package_json(p, meta, "omp", {"name": meta["name"], "version": str(meta.get("version")),
+                                   "extensions": ["./extensions/psai.ts"]})
+    return p
+
+
+OPENCODE_INSTALL = """#!/usr/bin/env bash
+# Install the __NAME__ stack (a psai standalone build) for opencode: a stub plugin that imports this bundle's plugin,
+# and links to its skills. Idempotent. Usage: ./install.sh [--dry-run] [--uninstall]
+set -euo pipefail
+B="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
+CFG="${XDG_CONFIG_HOME:-$HOME/.config}/opencode"
+MARK="// psai __NAME__: managed by its install.sh"
+STUB="$CFG/plugin/psai-__NAME__.js"
+DRY=0; MODE=install
+for a in "$@"; do case "$a" in --dry-run) DRY=1 ;; --uninstall) MODE=uninstall ;; *) echo "unknown option: $a" >&2; exit 2 ;; esac; done
+say() { if [ "$DRY" = 1 ]; then echo "would: $*"; else echo "$*"; fi; }
+do_() { [ "$DRY" = 1 ] || "$@"; }
+[ -d "$CFG" ] || { echo "opencode isn't set up here ($CFG missing)" >&2; exit 1; }
+if [ "$MODE" = install ]; then
+  if [ -e "$STUB" ] && ! grep -Fxq "$MARK" "$STUB"; then echo "skip: $STUB exists and is not ours" >&2
+  else
+    new="$(printf '%s\\nexport { Psai } from "%s/plugin/psai.js";\\n' "$MARK" "$B")"
+    if [ "$(cat "$STUB" 2>/dev/null)" != "$(printf "$new")" ]; then say "write $STUB"; do_ mkdir -p "$CFG/plugin"; [ "$DRY" = 1 ] || printf "$new" > "$STUB"; fi
+  fi
+  for s in "$B"/skills/*/; do
+    n="$(basename "$s")"; t="$CFG/skills/$n"
+    if [ -L "$t" ] && [ "$(readlink "$t")" = "${s%/}" ]; then continue; fi
+    if [ -e "$t" ] || [ -L "$t" ]; then echo "skip: $t exists and is not ours" >&2; continue; fi
+    say "link $t -> ${s%/}"; do_ mkdir -p "$CFG/skills"; do_ ln -s "${s%/}" "$t"
+  done
+else
+  if [ -f "$STUB" ] && grep -Fxq "$MARK" "$STUB"; then say "remove $STUB"; do_ rm -f "$STUB"; fi
+  for t in "$CFG"/skills/*; do
+    if [ -L "$t" ] && case "$(readlink "$t")" in "$B"/*) true ;; *) false ;; esac; then say "unlink $t"; do_ rm -f "$t"; fi
+  done
+fi
+echo "psai __NAME__: $MODE done$([ "$DRY" = 1 ] && echo ' (dry run)')"
+"""
+
+
+def build_opencode(out, src, meta):
+    p = os.path.join(out, meta["name"], "opencode")
+    make_home(p, src, meta)
+    bundled_extension("opencode", os.path.join(p, "plugin", "psai.js"))
+    skills_into(os.path.join(p, "skills"), src)
+    with open(os.path.join(p, "install.sh"), "w") as f:
+        f.write(OPENCODE_INSTALL.replace("__NAME__", meta["name"]))
+    os.chmod(os.path.join(p, "install.sh"), 0o755)
+    return p
+
+
+BUILDERS = {"claude": build_claude, "agent-plugins": build_agent_plugins, "pi": build_pi, "omp": build_omp,
+            "opencode": build_opencode}
 
 
 def stack_path(ref):

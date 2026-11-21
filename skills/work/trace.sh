@@ -12,7 +12,18 @@ node="${2:?node id required}"
 FW="$(cd -P "$(dirname "$0")" && pwd)/../.."   # the framework: this file is skills/work/trace.sh in it
 top="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
 trace="${PSAI_TRACE:-$(git rev-parse --absolute-git-dir 2>/dev/null || echo "$top")/psai-trace}"
-file="$(python3 "$FW/scripts/resolve.py" workflow "$wf")" || { echo "trace.sh: no workflow $wf" >&2; exit 2; }
+# the workflow's file, and its name as stack:name (bare in a single-root home), so every call names a run the same way
+IFS=$'\t' read -r file wf < <(python3 - "$FW/scripts" "$wf" <<'PY'
+import sys; sys.path.insert(0, sys.argv[1]); import resolve as r
+try:
+    x, h = r.resolve_all("workflow", sys.argv[2]), r.home()
+except r.ResolveError:
+    sys.exit(2)
+name = r.rel_path("workflow", r.split_ref(sys.argv[2])[1])[len("workflows/"):-len(".yaml")]
+print(x["path"], name if h.compat else f"{x['stack']}:{name}", sep="\t")
+PY
+) || true
+[ -n "${file:-}" ] && [ -f "$file" ] || { echo "trace.sh: no workflow ${1}" >&2; exit 2; }
 touch "$trace"
 python3 - "$file" "$wf" "$node" "$trace" "$FW" <<'EOF'
 import sys, yaml

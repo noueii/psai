@@ -315,14 +315,13 @@ def context(root, shown=None):
         parts.append("## Owner rules\n" + open(owner).read().strip())
     lines = ["For every request, run the request-router skill first. Skip it only for a quick question or a "
              f"one-off reply. Run `psai` as `{psai_cmd(root, shown)}` if it isn't on PATH.", "", "Workflows:"]
-    h = res.home(root)
-    wfs = []
-    for st in h.content_stacks():  # the overlay, then the installed stacks (PR 5 adds the merged index and budget)
-        for path in workflow_files(st.path):
-            wf = load(path) or {}
-            name = wf.get("name", os.path.basename(path)[:-5])
-            wfs.append(path)
-            lines.append(f"- {name if h.compat else f'{st.name}:{name}'}: {' '.join(str(wf.get('when', '')).split())}")
+    import index  # noqa: PLC0415
+    wfs, rules, collapsed = index.nudge_lines(index.load(res.home(root)))  # the merged index, within its word budget
+    lines += wfs
+    if collapsed:
+        lines.append("Some stacks are collapsed to one line: run `psai route` for the full list.")
+    if rules:
+        parts += rules
     if not wfs:
         lines.append("- none yet (customize-harness creates the first one)")
     lines += ["", "To add or change a skill, use customize-harness.",

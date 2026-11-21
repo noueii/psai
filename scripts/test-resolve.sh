@@ -77,7 +77,7 @@ grep -q '^workflow: other:triage' <<< "$n" && pass "psai node: workflows are sta
 (cd "$T" && PSAI_HOME="$H" HOME="$T" python3 "$ROOT/scripts/psai.py" node other:triage change 2>/dev/null) | grep -q '^handoff: continue in example:example' \
   && pass "psai node: a handoff names the target stack:workflow" || fail "psai node: handoff"
 r="$(PSAI_HOME="$H" HOME="$T" python3 "$ROOT/scripts/psai.py" route 2>/dev/null)"
-grep -q '^- other:triage: Sorting' <<< "$r" && grep -q '^- example:example: ' <<< "$r" && grep -q '^## other: A second neutral' <<< "$r" \
+grep -q '^- other:triage: Sorting' <<< "$r" && grep -q '^- example:example: ' <<< "$r" && grep -q '^## other (priority 40): A second neutral' <<< "$r" && grep -q 'workflow: other:triage' <<< "$r" \
   && pass "psai route: every stack's tree and workflows" || fail "psai route: $r"
 (cd "$T" && PSAI_HOME="$H" python3 "$ROOT/scripts/psai.py" simulate other 2>/dev/null) | grep -q '^simulate: 2/2 cases passed' \
   && pass "psai simulate takes a stack name" || fail "psai simulate other"

@@ -10,6 +10,7 @@ unset HARNESS_TRACE   # our own check-diff tests must not write into an eval run
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd -P)"
 FIX="$ROOT/evals/fixtures/harness-content"
+[ -d "$FIX" ] || FIX=""   # L4 eval copies strip the test content; its self-tests are then skipped
 QUICK=0; DISCOVER=0; EXTRA=()
 for a in "$@"; do
   case "$a" in --quick) QUICK=1 ;; --discover) DISCOVER=1 ;; *) EXTRA+=("$a") ;; esac
@@ -39,7 +40,7 @@ missing="$(cd "$ROOT" && find . -type d \( -name .git -o -name .claude-plugin -o
   | while read -r d; do [ -f "$d/README.md" ] || echo "$d"; done)"
 [ -z "$missing" ] && pass "every folder has a README.md" || fail "folders without README.md: $(echo $missing)"
 check "instructions/global.md is at most 250 words" test "$(wc -w < "$ROOT/instructions/global.md")" -le 250
-for r in "$ROOT" "$FIX" "${EXTRA[@]}"; do
+for r in "$ROOT" ${FIX:+"$FIX"} ${EXTRA[@]+"${EXTRA[@]}"}; do
   label="$( [ "$r" = "$ROOT" ] && echo vanilla || { [ "$r" = "$FIX" ] && echo fixture || echo "$r"; })"
   if out="$(python3 -c "
 import sys; sys.path.insert(0, '$ROOT/scripts'); import harness
@@ -53,6 +54,7 @@ print('\n'.join(p)); sys.exit(1 if p else 0)")"; then
 done
 check "root README diagram up to date" py graph.py "$ROOT" --check-readme
 
+if [ -n "$FIX" ]; then
 echo "L0 validator catches broken content"
 broken() { # name, python mutation of wf (a dict); expects validation to fail
   local b="$T/broken-$1"; rm -rf "$b"; cp -r "$FIX" "$b"
@@ -85,8 +87,22 @@ check "TESTS_ALLOW extends the tests role" bash -c "cd '$g' && TESTS_ALLOW='^src
 check "anything role may touch code" bash -c "cd '$g' && '$D' '$R/engineer.md' $b"
 check "trace line written" bash -c "cd '$g' && HARNESS_TRACE='$T/trace' '$D' '$R/qa.md' $b; grep -q 'role=qa may_change=tests result=violation' '$T/trace'"
 
+echo "L0 engine trace (trace.sh)"
+TR="$ROOT/skills/work/trace.sh"; tg="$T/tracerepo"; mkdir -p "$tg"; (cd "$tg" && git init -q)
+trun() { (cd "$tg" && HARNESS_HOME="$FIX" "$TR" coding "$1") >/dev/null 2>&1; }
+check "refuses a run that doesn't begin at start" bash -c "$(declare -f trun); TR='$TR' tg='$tg' FIX='$FIX'; ! trun ready"
+check "records start and an edge" bash -c "$(declare -f trun); TR='$TR' tg='$tg' FIX='$FIX'; trun clarify && trun implement"
+check "refuses leaving a role node before check-diff" bash -c "$(declare -f trun); TR='$TR' tg='$tg' FIX='$FIX'; ! trun verify_prep"
+echo "check-diff role=engineer may_change=anything result=ok files=1" >> "$tg/.git/harness-trace"
+check "refuses a move that isn't an edge" bash -c "$(declare -f trun); TR='$TR' tg='$tg' FIX='$FIX'; ! trun human_review"
+check "allows the edge after check-diff" bash -c "$(declare -f trun); TR='$TR' tg='$tg' FIX='$FIX'; trun verify_prep"
+echo "check-diff role=qa may_change=tests result=ok files=1" >> "$tg/.git/harness-trace"
+check "escalate resumes the asker" bash -c "$(declare -f trun); TR='$TR' tg='$tg' FIX='$FIX'; trun verify && trun escalate && trun verify"
+
+fi
+
 echo "L2 simulate"
-for r in "$ROOT" "$FIX" "${EXTRA[@]}"; do
+for r in "$ROOT" ${FIX:+"$FIX"} ${EXTRA[@]+"${EXTRA[@]}"}; do
   if out="$(py simulate.py "$r")"; then pass "$(echo "$out" | tail -1) ($(basename "$r"))"; else fail "simulate $(basename "$r")"; echo "$out" | grep FAIL; fi
 done
 

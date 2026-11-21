@@ -182,6 +182,8 @@ BLOCK = re.compile(r"<!-- graph:(?P<ref>[^ ]+?):start -->\n.*?<!-- graph:(?P=ref
 
 def render_block(ref, readme_dir, root):
     path = os.path.join(readme_dir, "workflows", f"{ref}.yaml") if "/" not in ref else os.path.join(readme_dir, ref)
+    if not os.path.exists(path):  # e.g. an eval copy without the test fixture: leave the block alone
+        return None
     wroot = os.path.dirname(os.path.dirname(os.path.abspath(path)))
     body = mermaid(wroot, harness.load(path))
     return f"<!-- graph:{ref}:start -->\n```mermaid\n{body}\n```\n<!-- graph:{ref}:end -->"
@@ -198,7 +200,7 @@ def refresh(root, write):
     stale = []
     for rp in readmes(root):
         text = open(rp).read()
-        new = BLOCK.sub(lambda m: render_block(m.group("ref"), os.path.dirname(rp), root), text)
+        new = BLOCK.sub(lambda m: render_block(m.group("ref"), os.path.dirname(rp), root) or m.group(0), text)
         if os.path.abspath(rp) == os.path.abspath(os.path.join(root, "README.md")):
             for path in harness.workflow_files(root):
                 name = os.path.basename(path)[:-5]

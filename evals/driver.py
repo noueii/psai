@@ -47,6 +47,8 @@ def prepare(scn, base):
     if scn.get("content"):
         src = os.path.join(ROOT, "evals", "fixtures", scn["content"])
         shutil.copytree(src, h, dirs_exist_ok=True, ignore=shutil.ignore_patterns("README.md"))
+    for rel in scn.get("strip") or []:  # e.g. hide the test content from a bootstrap run
+        shutil.rmtree(os.path.join(h, rel), ignore_errors=True)
     git_init(h, "harness")
     shutil.copytree(os.path.join(ROOT, "evals", "fixtures", scn["fixture"]), w, ignore=IGNORE)
     git_init(w)

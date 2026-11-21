@@ -5,6 +5,7 @@ about: >-
   owner's real choices. The new workflow must be filed per LAYOUT, pass check.sh, and then run a fixture task.
   A passing run's harness content (saved in evals/results/) is the owner's own coding setup, ready to adopt.
 content: null
+strip: [evals/fixtures/harness-content]   # build from the interview, not by copying the test content
 fixture: textkit
 phases:
   - name: bootstrap

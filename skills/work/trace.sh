@@ -1,9 +1,62 @@
 #!/usr/bin/env bash
-# Usage: trace.sh <node-id>
-# Run on entering every workflow node. Prints "[harness] node: <id>" and, when HARNESS_TRACE is set,
-# appends "node <id>" to it, so a run's path is recorded.
+# Usage: trace.sh <workflow> <node>
+# Run on entering every workflow node. It records the node, and refuses (exit 1, with the reason) when:
+# - the move doesn't follow the workflow (not an edge from the previous node, nor on_exhaust, nor back to the
+#   node that escalated, nor a new run at `start`);
+# - the previous node had a role and check-diff.sh hasn't run for it since.
+# The trace file is $HARNESS_TRACE, or <git-dir>/harness-trace. check-diff.sh writes to the same file.
 set -euo pipefail
-id="${1:?node id required}"
-echo "[harness] node: $id"
-[ -n "${HARNESS_TRACE:-}" ] && echo "node $id" >> "$HARNESS_TRACE"
-exit 0
+wf="${1:?workflow name required}"
+node="${2:?node id required}"
+H="${HARNESS_HOME:-$HOME/.harness}"
+top="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+trace="${HARNESS_TRACE:-$(git rev-parse --absolute-git-dir 2>/dev/null || echo "$top")/harness-trace}"
+file="$top/.harness/workflows/$wf.yaml"
+[ -f "$file" ] || file="$H/workflows/$wf.yaml"
+[ -f "$file" ] || { echo "trace.sh: no workflow $wf" >&2; exit 2; }
+touch "$trace"
+python3 - "$file" "$wf" "$node" "$trace" <<'EOF'
+import sys, yaml
+path, wf_name, node, trace = sys.argv[1:]
+wf = yaml.safe_load(open(path))
+nodes = wf["nodes"]
+if node not in nodes:
+    sys.exit(f"trace.sh: {node!r} is not a node of {wf_name}")
+lines = open(trace).read().splitlines()
+# the current run: lines since the last "workflow" marker
+start_i = max([i for i, l in enumerate(lines) if l.startswith("workflow ")], default=-1)
+run = lines[start_i + 1:] if start_i >= 0 else []
+cur_wf = lines[start_i].split()[1] if start_i >= 0 else None
+visited = [l.split()[1] for l in run if l.startswith("node ")]
+prev = visited[-1] if visited else None
+prev_node = (nodes.get(prev) or {}) if cur_wf == wf_name else {}
+if cur_wf == wf_name and prev:
+    # did check-diff run for the previous role node, after it was entered?
+    role = prev_node.get("role")
+    if role:
+        last = max(i for i, l in enumerate(run) if l == f"node {prev}")
+        if not any(l.startswith(f"check-diff role={role} ") for l in run[last + 1:]):
+            sys.exit(f"trace.sh: run check-diff.sh for the {role} (node {prev}) before moving on")
+    if node == wf["start"] and prev_node.get("terminal"):
+        allowed = {node}  # a new task
+    elif "return" in prev_node:
+        callers = [v for v in visited[:-1] if v != prev]
+        allowed = {callers[-1]} if callers else {wf["start"]}
+    else:
+        allowed = {e["to"] for e in prev_node.get("next", []) or []}
+        if (wf.get("defaults") or {}).get("on_exhaust"):
+            allowed.add(wf["defaults"]["on_exhaust"])
+        if prev_node.get("terminal"):
+            allowed = {wf["start"]}
+    if node not in allowed:
+        sys.exit(f"trace.sh: {prev} -> {node} is not an edge of {wf_name}; allowed: {', '.join(sorted(allowed))}. "
+                 f"Follow the workflow; never skip a node.")
+else:
+    if node != wf["start"]:
+        sys.exit(f"trace.sh: a run of {wf_name} starts at {wf['start']!r}, not {node!r}")
+    with open(trace, "a") as f:
+        f.write(f"workflow {wf_name}\n")
+with open(trace, "a") as f:
+    f.write(f"node {node}\n")
+print(f"[harness] node: {node}")
+EOF

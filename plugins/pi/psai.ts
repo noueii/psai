@@ -1,31 +1,45 @@
 // pi extension: append the live psai context to the system prompt before every agent run.
 // It also opens and closes the session's ledger record (session_start, session_shutdown).
-// Installed as ~/.pi/agent/extensions/psai.ts (a link). Reads $PSAI_HOME or ~/.psai each time.
+// Installed as ~/.pi/agent/extensions/psai.ts (a link). Runs `psai context` live each time.
 // pi has no subagents: work spawns a role as `PSAI_ROLE=<role> pi -p ...`, and harness.py then prints the role-mode text.
 import { execFileSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
-function context(): string {
-  const h = process.env.PSAI_HOME || join(homedir(), ".psai");
-  const shown = process.env.PSAI_HOME ? h : "~/.psai";
-  const script = join(h, "scripts", "harness.py");
-  if (!existsSync(script)) return "";
+// The one bootstrap: the home, and the psai command in it (framework/ in the stacks layout, else the clone itself,
+// else psai on PATH). Everything else goes through the psai command.
+function home(): string {
+  return process.env.PSAI_HOME || join(homedir(), ".psai"); // psai-bootstrap
+}
+
+function psai(): string {
+  for (const p of [join(home(), "framework", "scripts", "psai.py"), join(home(), "scripts", "psai.py")]) // psai-bootstrap
+    if (existsSync(p)) return p;
   try {
-    return execFileSync("python3", [script, "context", h, shown], { encoding: "utf8" });
+    return execFileSync("sh", ["-c", "command -v psai"], { encoding: "utf8" }).trim();
+  } catch {
+    return "";
+  }
+}
+
+function context(): string {
+  const script = psai();
+  if (!script) return "";
+  const shown = process.env.PSAI_HOME ? home() : "~/.psai";
+  try {
+    return execFileSync("python3", [script, "context", home(), shown], { encoding: "utf8" });
   } catch {
     return "";
   }
 }
 
 function ledger(args: string[]): void {
-  // the local session ledger (scripts/ledger.py); best-effort, never breaks a session
-  const h = process.env.PSAI_HOME || join(homedir(), ".psai");
-  const script = join(h, "scripts", "ledger.py");
-  if (!existsSync(script) || process.env.PSAI_ROLE) return;
+  // the local session ledger (`psai ledger`); best-effort, never breaks a session
+  const script = psai();
+  if (!script || process.env.PSAI_ROLE) return;
   try {
-    execFileSync("python3", [script, ...args], { stdio: "ignore" });
+    execFileSync("python3", [script, "ledger", ...args], { stdio: "ignore" });
   } catch {}
 }
 

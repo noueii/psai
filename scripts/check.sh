@@ -67,6 +67,15 @@ old_paths="$(cd "$ROOT" && { git ls-files -co --exclude-standard 2>/dev/null || 
   | grep -v -e '^docs/decisions/' -e '^migrations/' -e '^scripts/check\.sh$' -e '^scripts/test-sync\.sh$' -e '^evals/results/' | while IFS= read -r x; do [ -f "$x" ] && printf '%s\0' "$x"; done \
   | xargs -0 grep -nIE '(^|[^[:alnum:]_])\.harness([^[:alnum:]_-]|$)' 2>/dev/null | grep -v legacy)"
 [ -z "$old_paths" ] && pass "no ~/.harness path left (the base folder is ~/.psai)" || { fail "old ~/.harness paths:"; printf '%s\n' "$old_paths" | sed 's/^/         /'; }
+# Skills, plugins and steps find files by name (psai resolve/route/node), never by a path into the home. Exempt: the
+# plugins' bootstrap lines (marked psai-bootstrap). ADR 0011, section 5.
+hard="$(cd "$ROOT" && git ls-files -co --exclude-standard -- skills plugins 'evals/fixtures/*/steps/*.md' 'evals/fixtures/stacks/*/steps/*.md' 2>/dev/null \
+  | while IFS= read -r x; do [ -f "$x" ] && printf '%s\0' "$x"; done | xargs -0 grep -nIE '(~/\.psai/|\$\{?PSAI_HOME\}?/|\$HOME/\.psai|"\.psai")' 2>/dev/null | grep -v psai-bootstrap)"
+[ -z "$hard" ] && pass "no hard-coded ~/.psai or \$PSAI_HOME path in skills, plugins or steps" || { fail "hard-coded home paths:"; printf '%s\n' "$hard" | sed 's/^/         /'; }
+# There is no repo-level .psai/ layer (ADR 0011, Q2). Exempt: decision records and this file.
+repo_layer="$(cd "$ROOT" && git ls-files -co --exclude-standard 2>/dev/null | grep -v -e '^docs/decisions/' -e '^scripts/check\.sh$' -e '^evals/results/' \
+  | while IFS= read -r x; do [ -f "$x" ] && printf '%s\0' "$x"; done | xargs -0 grep -nIE "(<repo>/\.psai|\.psai/workflows|repo's \.psai|\"\.psai\", \"workflows)" 2>/dev/null)"
+[ -z "$repo_layer" ] && pass "no repo-level .psai/ layer left" || { fail "repo-level .psai/ references:"; printf '%s\n' "$repo_layer" | sed 's/^/         /'; }
 
 echo "L0 skills (harness.py skills check: roles' skills resolve; reads your tool folders, never writes)"
 E="$T/emptyhome"; mkdir -p "$E"
@@ -167,6 +176,14 @@ check "refuses a move that isn't an edge" bash -c "$(declare -f trun); TR='$TR' 
 check "allows the edge after check-diff" bash -c "$(declare -f trun); TR='$TR' tg='$tg' FIX='$FIX'; trun check"
 echo "check-diff role=checker may_change=nothing result=ok files=0" >> "$tg/.git/psai-trace"
 check "escalate resumes the asker" bash -c "$(declare -f trun); TR='$TR' tg='$tg' FIX='$FIX'; trun escalate && trun check"
+check "psai trace runs trace.sh (refuses a non-edge)" bash -c "cd '$tg' && ! PSAI_HOME='$FIX' python3 '$ROOT/scripts/psai.py' trace example ready"
+
+echo "L0 engine lookups (psai route, node, check-diff; single root)"
+P() { (cd "$tg" && PSAI_HOME="$FIX" HOME="$E" python3 "$ROOT/scripts/psai.py" "$@") 2>/dev/null; }
+check "psai route prints the tree and each workflow's when" bash -c "$(declare -f P); tg='$tg' FIX='$FIX' E='$E' ROOT='$ROOT'; o=\"\$(P route)\"; grep -q 'workflow: example' <<< \"\$o\" && grep -q '^- example: Any task' <<< \"\$o\" && grep -q 'Escalation block: .*/skills/work/escalation.md' <<< \"\$o\""
+check "psai node: step, reads, brief, knowledge, skills, edges" bash -c "$(declare -f P); tg='$tg' FIX='$FIX' E='$E' ROOT='$ROOT'; o=\"\$(P node example do)\"; grep -q '^step: $FIX/steps/do.md' <<< \"\$o\" && grep -q '^  brief: $FIX/roles/doer.md' <<< \"\$o\" && grep -q '^  knowledge: $FIX/knowledge/roles/doer/INDEX.md' <<< \"\$o\" && grep -q 'Your skills: change-notes' <<< \"\$o\" && grep -q '^next: blocked -> escalate' <<< \"\$o\""
+check "psai node: a missing required skill exits 3" bash -c "cd '$tg' && PSAI_HOME='$T/skbad-required-skill-that-resolves-nowhere' HOME='$E' python3 '$ROOT/scripts/psai.py' node example do >/dev/null 2>&1; test \$? = 3"
+check "psai check-diff <workflow> <node> <base> uses the node's brief" bash -c "cd '$g' && PSAI_HOME='$FIX' python3 '$ROOT/scripts/psai.py' check-diff example check $b 2>/dev/null | grep -q 'BOUNDARY VIOLATION (checker, may_change: nothing)'"
 
 echo "L0 psai resolve and stack.yaml (scripts/test-resolve.sh; fixture stacks in a temp PSAI_HOME)"
 while IFS= read -r line; do
@@ -347,7 +364,7 @@ h="$T/custom"; c="$h/tools/psai"; mkdir -p "$h/.pi/agent"
 PSAI_HOME="$c" PSAI_STATE="$h/.psai-state" env -u XDG_CONFIG_HOME HOME="$h" bash "$I" > /dev/null 2>&1
 check "link made at \$PSAI_HOME, not ~/.psai" bash -c "test \"\$(readlink '$c')\" = '$ROOT' && test ! -e '$h/.psai'"
 check "skills and pi extension point through \$PSAI_HOME" bash -c "test \"\$(readlink '$h/.agents/skills/work')\" = '$c/skills/work' && test \"\$(readlink '$h/.pi/agent/extensions/psai.ts')\" = '$c/plugins/pi/psai.ts'"
-check "nudge shows \$PSAI_HOME paths" bash -c "PSAI_HOME='$c' HOME='$h' bash '$ROOT/plugins/claude/hooks/session-start.sh' | grep -Fq '$c/skills/request-router/SKILL.md'"
+check "nudge shows \$PSAI_HOME paths" bash -c "PSAI_HOME='$c' HOME='$h' bash '$ROOT/plugins/claude/hooks/session-start.sh' | grep -Fq 'python3 $c/scripts/psai.py'"
 PSAI_HOME="$c" PSAI_STATE="$h/.psai-state" env -u XDG_CONFIG_HOME HOME="$h" bash "$I" --uninstall > /dev/null 2>&1
 check "uninstall removes the \$PSAI_HOME link and its links" bash -c "test ! -L '$c' && test ! -L '$h/.agents/skills/work' && test ! -L '$h/.pi/agent/extensions/psai.ts'"
 

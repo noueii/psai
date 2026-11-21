@@ -12,7 +12,12 @@
   psai ledger [list|show|...]             the local session ledger
   psai check [args]                       scripts/check.sh
   psai resolve [kind] <ref> [--from S] [--all] [--json] [--write]   find content by name (scripts/resolve.py)
-  psai context | graph | simulate [args]  harness.py context, graph.py, simulate.py (root defaults to $PSAI_HOME)
+  psai context | role-context [home] [shown]   the injected nudge (harness.py context)
+  psai graph | simulate [<stack>|<path>] [args]   graph.py, simulate.py (a stack name or folder; default the home)
+  psai route                              the routing trees and workflows (the request-router skill reads it)
+  psai node <workflow> <node>             a node's resolved files and skills (the work skill reads it)
+  psai trace <workflow> <node>            record a move; refuse one that isn't an edge (skills/work/trace.sh)
+  psai check-diff <workflow> <node> <base>   check a role's diff against its may_change (skills/work/check-diff.sh)
 """
 import os
 import shutil
@@ -164,11 +169,16 @@ def main(argv):
         return run(py + [os.path.join(HERE, "harness.py"), "skills", *rest])
     if cmd == "check":
         return run(["bash", os.path.join(r, "scripts", "check.sh"), *rest])
-    if cmd == "context":
-        return run(py + [os.path.join(HERE, "harness.py"), "context", *(rest or [r])])
+    if cmd in ("context", "role-context"):
+        return run(py + [os.path.join(HERE, "harness.py"), cmd, *(rest or [r])])
     if cmd in ("graph", "simulate"):
         args = rest if rest and not rest[0].startswith("-") else [r, *rest]
+        import harness  # noqa: PLC0415
+        args[0] = harness.stack_root(args[0])
         return run(py + [os.path.join(HERE, f"{cmd}.py"), *args])
+    if cmd in ("route", "node", "trace", "check-diff"):
+        import engine  # noqa: PLC0415
+        return engine.main(cmd, rest)
     if cmd == "status":
         print("\n".join(lines_status(r)))
         return 0

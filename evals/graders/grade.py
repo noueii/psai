@@ -143,7 +143,7 @@ def grade(expect, log, ctx):
         if calls is None:
             add("role agents did not route", True, "skipped: this tool's driver doesn't record subagent tool calls")
         else:
-            bad = [c for c in calls if re.search(r'"skill": "[^"]*\b(request-router|work)"|(request-router|/work)/SKILL\.md|work/trace\.sh', c)]
+            bad = [c for c in calls if re.search(r'"skill": "[^"]*\b(request-router|work)"|(request-router|/work)/SKILL\.md|work/trace\.sh|psai(\.py)? (trace|route|node) ', c)]
             runs = sum(t.startswith("workflow ") for t in phase)
             add("role agents did not route", calls and not bad and runs == 1,
                 f"{len(calls)} subagent tool calls, {len(bad)} routing: {'; '.join(bad)[:300]}; workflow runs in trace: {runs}")

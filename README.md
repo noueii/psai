@@ -16,6 +16,17 @@ A tool-agnostic agent harness for Claude Code, opencode, pi and oh-my-pi (omp). 
 
 From then on, give agents tasks as usual. `work` routes each task to one of your workflows and runs it, then runs a retro.
 
+## Add stacks
+A stack is a git repo of workflows, roles, steps, guides, templates and skills with a `stack.yaml` (ADR 0011). Install as many as you like; every name is namespaced (`stack:workflow`), and your overlay `nostack` always wins:
+```sh
+psai stack add github:owner/repo          # the newest release tag that takes your psai; shows what it injects, then asks
+psai stack add <git URL or path> --ref v1.2.0 [--as other-name]
+psai stack add ~/src/my-stack --dev       # link your working clone instead of a pinned copy
+psai stack list | update [<name>] | remove <name> | diff <name> [<path>]
+psai stack sync                           # a new machine: install everything your overlay's stacks.yaml lists
+```
+Adding a stack never runs its code. A release is a `vX.Y.Z` tag; a branch is never pinned. A stack's `requires:` are installed with it, one version each; a conflict is refused.
+
 `install.sh` also links the `psai` command into `~/.local/bin`: `psai status`, `psai doctor`, `psai sync`, `psai retro`, `psai update`, `psai adopt <skill>`, `psai check`, `psai context`, `psai graph`, `psai simulate`, `psai resolve`, `psai route`, `psai node`, `psai trace`, `psai check-diff`, `psai install`.
 
 ## Get updates: the sync skill

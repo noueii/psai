@@ -266,6 +266,11 @@ while IFS= read -r line; do
   case "$line" in "  ok   "*) pass "${line#  ok   }" ;; "  FAIL "*) fail "${line#  FAIL }" ;; "  skip "*) echo "$line" ;; "L1 "*) echo "  -- ${line#L1 }" ;; esac
 done < <("$ROOT/scripts/test-sync.sh" 2>/dev/null)
 
+echo "L1 stacks: add, remove, update, list, sync, diff (scripts/test-stacks.sh; local git repos, no network)"
+while IFS= read -r line; do
+  case "$line" in "  ok   "*) pass "${line#  ok   }" ;; "  FAIL "*) fail "${line#  FAIL }" ;; "L1 "*) echo "  -- ${line#L1 }" ;; esac
+done < <("$ROOT/scripts/test-stacks.sh" 2>/dev/null)
+
 echo "L1 uninstall"
 run "$h" --uninstall --dry-run > /dev/null 2>&1
 check "uninstall dry-run changes nothing" test "$after" = "$(snap "$h")"

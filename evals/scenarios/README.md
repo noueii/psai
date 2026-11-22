@@ -5,6 +5,8 @@ Your scenarios: one YAML file per scenario, named `<name>.yaml`. `customize-harn
 name: happy-path
 level: L3                      # L3 (content fixture) or L4 (bootstrap)
 content: harness-content       # folder in evals/fixtures/ overlaid on the harness (or a list, in order); null = vanilla
+stacks: { example: harness-content, other: stacks/other }   # instead of content: a stacks-layout home with these
+overlay: stacks/nostack        # with stacks: the overlay's fixture (default: an empty overlay)
 fixture: textkit               # fixture repo in evals/fixtures/
 task: ...                      # the prompt
 owner:                         # the fake owner

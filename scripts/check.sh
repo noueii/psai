@@ -185,6 +185,11 @@ check "psai node: step, reads, brief, knowledge, skills, edges" bash -c "$(decla
 check "psai node: a missing required skill exits 3" bash -c "cd '$tg' && PSAI_HOME='$T/skbad-required-skill-that-resolves-nowhere' HOME='$E' python3 '$ROOT/scripts/psai.py' node example do >/dev/null 2>&1; test \$? = 3"
 check "psai check-diff <workflow> <node> <base> uses the node's brief" bash -c "cd '$g' && PSAI_HOME='$FIX' python3 '$ROOT/scripts/psai.py' check-diff example check $b 2>/dev/null | grep -q 'BOUNDARY VIOLATION (checker, may_change: nothing)'"
 
+echo "L0 routing across stacks (scripts/test-routing.sh: index, nudge budget, prefer/priority/disable, trace, ledger)"
+while IFS= read -r line; do
+  case "$line" in "  ok   "*) pass "${line#  ok   }" ;; "  FAIL "*) fail "${line#  FAIL }" ;; esac
+done < <("$ROOT/scripts/test-routing.sh" 2>/dev/null)
+
 echo "L0 psai resolve and stack.yaml (scripts/test-resolve.sh; fixture stacks in a temp PSAI_HOME)"
 while IFS= read -r line; do
   case "$line" in "  ok   "*) pass "${line#  ok   }" ;; "  FAIL "*) fail "${line#  FAIL }" ;; esac

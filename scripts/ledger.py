@@ -3,7 +3,7 @@
 
 <state> is $PSAI_STATE, else the home's state/ (or <clone>/.state in a single-root home; the home is $PSAI_HOME or ~/.psai). A record holds: id, tool,
 project, start, end, workflows run, escalations, retro done (or pending), captured counts (new inbox entries and
-staged changes), drift seen, psai version, and the PR branch that synced it. The plugins write it at session start
+staged changes), drift seen, psai version, the installed stacks' versions, and the PR branch that synced it. The plugins write it at session start
 and end; trace.sh (run by work) adds workflows and escalations; retro and sync mark it.
 
 CLI (also `psai ledger ...`):
@@ -69,6 +69,14 @@ def version(root=None):
     fw = home(root).framework
     sha = git(fw, "rev-parse", "--short", "HEAD") or "unknown"
     return f"{resolve.framework_version(fw)}+{sha}"
+
+
+def stack_versions(root=None):
+    """{stack: version} of the installed stacks (ADR 0011: a record holds the stacks it ran with)."""
+    try:
+        return {s.name: str(s.meta.get("version", "?")) for s in home(root).stacks}
+    except Exception:  # noqa: BLE001 - the ledger is best-effort
+        return {}
 
 
 def project_of(path):
@@ -146,7 +154,8 @@ def start(tool, sid, project=None, transcript=None, root=None):
         return save(old, root)
     rec = {"id": sid, "tool": tool, "project": project_of(project), "start": now(), "workflows": [],
            "escalations": 0, "retro": False, "captured": {"inbox": 0, "staged": 0}, "drift": [],
-           "psai_version": version(root), "inbox_at_start": inbox_counts(root)}
+           "psai_version": version(root), "stacks": stack_versions(root),
+           "inbox_at_start": inbox_counts(root)}
     if transcript:
         rec["transcript"] = transcript
     return save(rec, root)

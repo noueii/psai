@@ -15,7 +15,7 @@
   psai resolve [kind] <ref> [--from S] [--all] [--json] [--write]   find content by name (scripts/resolve.py)
   psai context | role-context [home] [shown]   the injected nudge (harness.py context)
   psai graph | simulate [<stack>|<path>] [args]   graph.py, simulate.py (a stack name or folder; default the home)
-  psai route                              the routing trees and workflows (the request-router skill reads it)
+  psai route | index                      the merged routing index (the request-router skill reads it) | rebuild it
   psai node <workflow> <node>             a node's resolved files and skills (the work skill reads it)
   psai trace <workflow> <node>            record a move; refuse one that isn't an edge (skills/work/trace.sh)
   psai check-diff <workflow> <node> <base>   check a role's diff against its may_change (skills/work/check-diff.sh)
@@ -186,7 +186,7 @@ def main(argv):
         import harness  # noqa: PLC0415
         args[0] = harness.stack_root(args[0])
         return run(py + [os.path.join(HERE, f"{cmd}.py"), *args])
-    if cmd in ("route", "node", "trace", "check-diff"):
+    if cmd in ("route", "index", "node", "trace", "check-diff"):
         import engine  # noqa: PLC0415
         return engine.main(cmd, rest)
     if cmd == "status":

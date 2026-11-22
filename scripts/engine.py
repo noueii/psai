@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """The engine's lookups, so the request-router and work skills never build paths (`psai route|node|trace|check-diff`).
 
-  psai route                         the routing tree and each workflow's `when`, per stack, plus where the engine is
+  psai route                         the merged index (index.py): tie-break rules, then per stack its description,
+                                     rules, routing tree and workflows' `when`, plus where the engine is
+  psai index                         rebuild the cached index (state/index.json)
   psai node <workflow> <node>        a node's resolved files: its step and `read:` files; for a role, the brief, the
                                      brief's `read:` files, its knowledge and its skills (exit 3: a required skill is
                                      missing); then its edges
@@ -35,35 +37,34 @@ def _load(p):
         return yaml.safe_load(f) or {}
 
 
-def _workflows(st):
-    d = os.path.join(st.path, "workflows")
-    if not os.path.isdir(d):
-        return []
-    return sorted(os.path.join(d, f) for f in os.listdir(d)
-                  if f.endswith(".yaml") and not f.endswith(".cases.yaml") and not f.startswith("ROUTING"))
-
-
 def route(h=None):
+    """The merged index for the request-router: tie-break rules, then each stack (the overlay first, then by
+    priority) with its description, rules, routing tree and workflows."""
+    import index  # noqa: PLC0415
     h = h or res.home()
+    idx = index.load(h)
     out = [f"Engine: {res.resolve('skill', 'work', h=h)} (read it once a workflow is chosen). "
            f"Escalation block: {res.resolve('file', 'psai:skills/work/escalation.md', h=h)}.", ""]
+    if not idx["compat"]:
+        out.append("Several workflows fit: the owner's prefer rules first, then the higher priority, then the order "
+                   "below. Still a tie, or unsure between two: escalate.")
+        out += [f"- prefer: if {p.get('if')} -> {p.get('use')}" for p in idx["prefer"]]
+        out += [f"- disabled: {d}" for d in idx["disable"]]
+        out.append("")
     any_wf = False
-    for st in h.content_stacks():
-        wfs = _workflows(st)
-        if not wfs:
+    for s in index.ranked(idx):
+        if not s["workflows"]:
             continue
         any_wf = True
-        desc = st.meta.get("description")
-        out.append(f"## {st.name}" + (f": {' '.join(str(desc).split())}" if desc and not h.compat else ""))
-        rp = os.path.join(st.path, "workflows", "ROUTING.yaml")
-        if os.path.exists(rp):
+        head = f"## {s['name']}" + ("" if idx["compat"] else (" (your overlay)" if s["overlay"] else f" (priority {s['priority']})"))
+        out.append(head + (f": {s['description']}" if s["description"] and not idx["compat"] else ""))
+        if s["instructions"]:
+            out.append(f"Rules: {s['instructions']}")
+        if s["tree"]:
             out += ["Routing tree (workflows/ROUTING.yaml):", "```yaml",
-                    yaml.safe_dump(_load(rp).get("tree"), sort_keys=False, allow_unicode=True).rstrip(), "```"]
+                    yaml.safe_dump(s["tree"], sort_keys=False, allow_unicode=True).rstrip(), "```"]
         out.append("Workflows:")
-        for p in wfs:
-            wf = _load(p)
-            name = wf.get("name", os.path.basename(p)[:-5])
-            out.append(f"- {qualified(h, st.name, name)}: {' '.join(str(wf.get('when', '')).split())}")
+        out += [index.wf_line(s, w) for w in s["workflows"]]
         out.append("")
     if not any_wf:
         out.append("No workflows yet (customize-harness creates the first one).")
@@ -144,6 +145,9 @@ def main(cmd, argv):
     try:
         if cmd == "route":
             return route()
+        if cmd == "index":
+            import index  # noqa: PLC0415
+            return index.main(argv)
         if cmd == "node":
             if len(argv) != 2:
                 print("usage: psai node <workflow> <node>", file=sys.stderr)

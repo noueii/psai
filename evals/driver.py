@@ -3,6 +3,9 @@
 
 Each run gets a throwaway directory:
 - harness/   a copy of this harness (vanilla), with the scenario's test content overlaid; PSAI_HOME points here;
+- home/      with `stacks:` in the scenario, a stacks-layout home instead (ADR 0011): framework/ links harness/,
+             stacks/<name>/ are copies of the listed fixtures, overlay/ is `overlay:` (or an empty overlay), and
+             PSAI_HOME points here;
 - work/      a copy of the fixture repo, a git repo whose origin is remote.git (a local bare repo);
 - bin/gh     a shim that logs and refuses, so nothing reaches GitHub; bin/psai runs the copy's psai command;
 - trace.log  check-diff.sh's lines (PSAI_TRACE).
@@ -53,11 +56,13 @@ def prepare(scn, base):
     for rel in scn.get("strip") or []:  # e.g. hide the test content from a bootstrap run
         shutil.rmtree(os.path.join(h, rel), ignore_errors=True)
     git_init(h, "harness")
+    home = stacks_home(scn, base, h) if scn.get("stacks") else h
     # this machine's state for the copy: installed at HEAD, migrations done (never run against the real HOME), and a
     # drift baseline of the real HOME (read only), so sync has nothing to update or adopt unless the run creates it
-    sh(f"python3 scripts/sync.py installed --record --root {h} && python3 scripts/sync.py baseline --root {h}", h)
+    sh(f"python3 scripts/sync.py installed --record --root {home} && python3 scripts/sync.py baseline --root {home}", h)
     mig = {os.path.basename(m): "eval" for m in sorted(os.listdir(os.path.join(h, "migrations"))) if m.endswith(".sh")}
-    with open(os.path.join(h, ".state", "migrations.json"), "w") as f:
+    state = os.path.join(home, "state" if home != h else ".state")
+    with open(os.path.join(state, "migrations.json"), "w") as f:
         json.dump(mig, f)
     shutil.copytree(os.path.join(ROOT, "evals", "fixtures", scn["fixture"]), w, ignore=IGNORE)
     git_init(w)
@@ -70,7 +75,31 @@ def prepare(scn, base):
     with open(os.path.join(b, "psai"), "w") as f:
         f.write(f'#!/bin/sh\nexec python3 {h}/scripts/psai.py "$@"\n')
     os.chmod(os.path.join(b, "psai"), 0o755)
-    return h, w
+    return h, w, home
+
+
+def stacks_home(scn, base, h):
+    """A stacks-layout home for the run: framework/ -> the harness copy, the scenario's stacks, an overlay."""
+    home = os.path.join(base, "home")
+    os.makedirs(os.path.join(home, "stacks"))
+    os.symlink(h, os.path.join(home, "framework"))
+    ents = []
+    for name, fx in scn["stacks"].items():
+        shutil.copytree(os.path.join(ROOT, "evals", "fixtures", fx), os.path.join(home, "stacks", name), ignore=IGNORE)
+        ents.append({"name": name, "source": f"fixture:{fx}", "ref": "v0.0.0", "mode": "pinned"})
+    ov = os.path.join(home, "overlay")
+    if scn.get("overlay"):
+        shutil.copytree(os.path.join(ROOT, "evals", "fixtures", scn["overlay"]), ov, ignore=IGNORE)
+    else:
+        sys.path.insert(0, os.path.join(h, "scripts"))
+        import stacks  # noqa: PLC0415
+        stacks.init_overlay(home)
+    with open(os.path.join(ov, "stacks.yaml"), "w") as f:
+        yaml.safe_dump({"stacks": ents}, f, sort_keys=False)
+    if not os.path.isdir(os.path.join(ov, ".git")):
+        git_init(ov, "overlay")
+    os.makedirs(os.path.join(home, "state"), exist_ok=True)
+    return home
 
 
 def remote_refs(base):
@@ -124,7 +153,12 @@ class Claude:
             json.dump({"name": "harness-skills", "version": "0.0.0", "description": "eval-only skills link"}, f)
         sk = os.path.join(sp, "skills")  # psai's skills and my-skills/, as install.sh links them
         os.makedirs(sk, exist_ok=True)
-        for sub in ("skills", "my-skills"):
+        if env["PSAI_HOME"] != h:  # a stacks-layout home: the framework's, the overlay's and each stack's skills
+            sys.path.insert(0, os.path.join(h, "scripts"))
+            import stacks  # noqa: PLC0415
+            for n, target in stacks.skill_sources(env["PSAI_HOME"]):
+                os.symlink(target, os.path.join(sk, n))
+        for sub in ("skills", "my-skills") if env["PSAI_HOME"] == h else ():
             d = os.path.join(h, sub)
             for n in sorted(os.listdir(d)) if os.path.isdir(d) else []:
                 if os.path.isfile(os.path.join(d, n, "SKILL.md")) and not os.path.lexists(os.path.join(sk, n)):
@@ -133,7 +167,7 @@ class Claude:
             ["claude", "-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose",
              "--plugin-dir", os.path.join(h, "plugins", "claude"), "--plugin-dir", sp,
              "--setting-sources", "project", "--no-session-persistence", "--strict-mcp-config",
-             "--permission-mode", "bypassPermissions", "--add-dir", h, "--model", model, "--max-budget-usd", str(budget)],
+             "--permission-mode", "bypassPermissions", "--add-dir", h, "--add-dir", env["PSAI_HOME"], "--model", model, "--max-budget-usd", str(budget)],
             cwd=cwd, env=env, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
         self.texts, self.sub_calls, self.cost = [], [], 0.0
         self.raw = open(os.path.join(os.path.dirname(h), "stream.jsonl"), "a")
@@ -266,9 +300,9 @@ class Omp:
 TOOLS = {"claude": Claude, "omp": Omp}
 
 
-def run_phase(tool, phase, h, w, base, model, budget):
+def run_phase(tool, phase, h, w, base, model, budget, home=None):
     cwd = h if phase.get("cwd") == "harness" else w
-    env = dict(os.environ, PSAI_HOME=h, PSAI_TRACE=os.path.join(base, "trace.log"), PSAI_EVAL="1",
+    env = dict(os.environ, PSAI_HOME=home or h, PSAI_TRACE=os.path.join(base, "trace.log"), PSAI_EVAL="1",
                PATH=os.path.join(base, "bin") + os.pathsep + os.environ["PATH"],
                GIT_AUTHOR_NAME="eval", GIT_AUTHOR_EMAIL="eval@local", GIT_COMMITTER_NAME="eval",
                GIT_COMMITTER_EMAIL="eval@local")
@@ -329,13 +363,13 @@ def run_scenario(path, tool, model, budget, keep):
     scn = yaml.safe_load(open(path))
     phases = scn.get("phases") or [{k: scn[k] for k in ("task", "owner", "expect") if k in scn}]
     base = tempfile.mkdtemp(prefix=f"psai-eval-{scn['name']}-")
-    h, w = prepare(scn, base)
+    h, w, home = prepare(scn, base)
     refs0 = remote_refs(base)
     head0 = sh("git rev-parse HEAD", w).stdout.strip()
     results, ok = [], True
     for ph in phases:
         open(os.path.join(base, "trace.log"), "a").write(f"phase {ph.get('name', 'main')}\n")
-        log = run_phase(tool, ph, h, w, base, model, budget)
+        log = run_phase(tool, ph, h, w, base, model, budget, home)
         branches = sh("git branch --format='%(refname:short)'", h).stdout.split()
         found = use_staged(h) if ph.get("cwd") == "harness" else {}
         checks = grade.grade(ph.get("expect") or {}, log, dict(base=base, harness=h, work=w, refs0=refs0, head0=head0,

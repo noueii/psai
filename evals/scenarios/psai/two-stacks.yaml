@@ -1,0 +1,16 @@
+name: two-stacks
+level: L3
+about: With two stacks installed, a request that fits the second stack's workflow is routed to it (stack:workflow), not to the first stack's.
+stacks: { example: harness-content, other: stacks/other }
+fixture: textkit
+task: "Sort this note into the right list: 'idea: give a short talk about the text helpers at the next team meetup'. It's a note to file, not a change to make."
+owner:
+  review: Approved.
+  max_turns: 6
+expect:
+  router_invoked: true
+  path_includes: [sort, ready]
+  escalations: { max: 0 }
+  roles_checked: [sorter]
+  unchanged: true
+  no_push: true

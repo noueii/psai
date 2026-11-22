@@ -292,8 +292,11 @@ def check_layout(root, layout_md, dirs=("workflows", "steps", "roles", "guides",
 def psai_cmd(root, shown=None):
     """How an agent runs the psai command, as shown in the nudge: the framework's psai.py, through `shown` (the home as
     the plugins print it, e.g. ~/.psai) when the framework sits under the home."""
-    fw, real = os.path.realpath(res.home(root).framework), os.path.realpath(root)
-    if shown and fw == real:
+    h = res.home(root)
+    fw, real = os.path.realpath(h.framework), os.path.realpath(root)
+    if shown and not h.compat:
+        path = f"{shown.rstrip('/')}/framework"
+    elif shown and fw == real:
         path = shown
     elif shown and fw.startswith(real + os.sep):
         path = f"{shown.rstrip('/')}/{os.path.relpath(fw, real)}"
@@ -312,10 +315,14 @@ def context(root, shown=None):
         parts.append("## Owner rules\n" + open(owner).read().strip())
     lines = ["For every request, run the request-router skill first. Skip it only for a quick question or a "
              f"one-off reply. Run `psai` as `{psai_cmd(root, shown)}` if it isn't on PATH.", "", "Workflows:"]
-    wfs = workflow_files(root)
-    for path in wfs:
-        wf = load(path) or {}
-        lines.append(f"- {wf.get('name', os.path.basename(path)[:-5])}: {' '.join(str(wf.get('when', '')).split())}")
+    h = res.home(root)
+    wfs = []
+    for st in h.content_stacks():  # the overlay, then the installed stacks (PR 5 adds the merged index and budget)
+        for path in workflow_files(st.path):
+            wf = load(path) or {}
+            name = wf.get("name", os.path.basename(path)[:-5])
+            wfs.append(path)
+            lines.append(f"- {name if h.compat else f'{st.name}:{name}'}: {' '.join(str(wf.get('when', '')).split())}")
     if not wfs:
         lines.append("- none yet (customize-harness creates the first one)")
     lines += ["", "To add or change a skill, use customize-harness.",

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """The session ledger: one local record per agent session, in <state>/sessions/<id>.json (git-ignored).
 
-<state> is $PSAI_STATE, else <psai root>/.state (the root is $PSAI_HOME or ~/.psai). A record holds: id, tool,
+<state> is $PSAI_STATE, else the home's state/ (or <clone>/.state in a single-root home; the home is $PSAI_HOME or ~/.psai). A record holds: id, tool,
 project, start, end, workflows run, escalations, retro done (or pending), captured counts (new inbox entries and
 staged changes), drift seen, psai version, and the PR branch that synced it. The plugins write it at session start
 and end; trace.sh (run by work) adds workflows and escalations; retro and sync mark it.
@@ -27,8 +27,13 @@ def root_dir(root=None):
     return root or os.environ.get("PSAI_HOME") or os.path.expanduser("~/.psai")
 
 
+def home(root=None):
+    import resolve  # noqa: PLC0415
+    return resolve.Home(root_dir(root))
+
+
 def state_dir(root=None):
-    return os.environ.get("PSAI_STATE") or os.path.join(root_dir(root), ".state")
+    return os.environ.get("PSAI_STATE") or home(root).state
 
 
 def now():
@@ -60,10 +65,10 @@ def git(root, *args, check=False):
 
 
 def version(root=None):
-    r = root_dir(root)
-    sha = git(r, "rev-parse", "--short", "HEAD") or "unknown"
-    meta = read_json(os.path.join(r, "plugins", "claude", ".claude-plugin", "plugin.json"), {}) or {}
-    return f"{meta.get('version', '?')}+{sha}"
+    import resolve  # noqa: PLC0415
+    fw = home(root).framework
+    sha = git(fw, "rev-parse", "--short", "HEAD") or "unknown"
+    return f"{resolve.framework_version(fw)}+{sha}"
 
 
 def project_of(path):
@@ -74,13 +79,15 @@ def project_of(path):
 
 # ---------- what a session captured ----------
 def inbox_files(root):
-    r = root_dir(root)
-    return sorted([os.path.join(r, "knowledge", "inbox.md")] + glob.glob(os.path.join(r, "knowledge", "roles", "*", "inbox.md")))
+    """The overlay's inboxes: knowledge/inbox.md, knowledge/roles/<r>/inbox.md and knowledge/<stack>/roles/<r>/inbox.md."""
+    r = home(root).overlay_path
+    return sorted([os.path.join(r, "knowledge", "inbox.md")] + glob.glob(os.path.join(r, "knowledge", "roles", "*", "inbox.md"))
+                  + glob.glob(os.path.join(r, "knowledge", "*", "roles", "*", "inbox.md")))
 
 
 def inbox_counts(root=None):
     """{relative inbox path: number of `## ` entries}."""
-    r = root_dir(root)
+    r = home(root).overlay_path
     out = {}
     for f in inbox_files(r):
         try:

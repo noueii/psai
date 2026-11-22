@@ -1,18 +1,23 @@
 #!/usr/bin/env bash
 # Install, refresh or remove psai for Claude Code, opencode, pi and omp.
-# Usage: ./install.sh [--dry-run] [--uninstall] [--adopt <skill>]    (PSAI_HOME overrides the link path, default ~/.psai;
-#        PSAI_BIN the folder for the `psai` command, default ~/.local/bin; PSAI_STATE the local state, default <clone>/.state)
-# Idempotent. Touches only its own links, plugin files, README-psai.md and plugin registration. Links psai's skills/,
-# your my-skills/ and the pinned skills.yaml packs (fetched into the git-ignored .skills-cache/) into ~/.claude/skills
-# and ~/.agents/skills. --adopt brings one unmanaged skill from a tool folder under psai. One injection path per tool:
-# a plugin that injects the live psai nudge (scripts/harness.py context). Links the `psai` command, runs pending
-# migrations/ once per machine and records the installed commit. On upgrade it removes v1's import lines and blocks.
+# Usage: ./install.sh [--dry-run] [--uninstall] [--relink] [--adopt <skill>]   (PSAI_HOME: the home, default ~/.psai;
+#        PSAI_BIN the folder for the `psai` command, default ~/.local/bin; PSAI_STATE the local state, default <home>/state)
+# Idempotent. Sets up the home (ADR 0011): framework/ links this clone, overlay/ (your stack nostack, a git repo) is
+# created once, stacks/ holds installed stacks, state/ the local state. A home that is still a link to a fork clone is
+# converted first (migration 0002). Touches only its own links, plugin files, README-psai.md and plugin registration.
+# Links the framework's skills, the overlay's and each stack's my-skills/ and their pinned skills.yaml packs (fetched
+# into state/skills-cache/<stack>/) into ~/.claude/skills and ~/.agents/skills; --relink does only that (psai stack
+# runs it). --adopt brings one unmanaged skill from a tool folder into the overlay. One injection path per tool: a
+# plugin that injects the live nudge (`psai context`). Links the `psai` command, runs pending migrations/ once per
+# machine and records the installed commit. Uninstall never deletes the overlay, the stacks or the state.
 set -euo pipefail
 
 if [ -n "${PSAI_EVAL:-}" ]; then echo "psai: eval run: install.sh never touches HOME here" >&2; exit 0; fi
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 H="${PSAI_HOME:-$HOME/.psai}"
 H="${H%/}"
+FW="$H/framework"
+STATE="${PSAI_STATE:-$H/state}"
 OLD_H="$HOME/.harness"                                # legacy base link (before the rename), removed on upgrade
 IMPORT='@~/.harness/instructions/global.md'          # legacy: v1/early v2 import lines, removed on upgrade
 OWNER_IMPORT='@~/.harness/instructions/owner.md'     # legacy
@@ -30,13 +35,14 @@ while [ $# -gt 0 ]; do
   case "$1" in
     --dry-run) DRY=1 ;;
     --uninstall) MODE=uninstall ;;
+    --relink) MODE=relink ;;
     --adopt) [ -n "${2:-}" ] || { echo "--adopt needs a skill name" >&2; exit 2; }; ADOPT="$2"; shift ;;
-    -h|--help) sed -n '2,5p' "$0" | sed 's/^# //'; exit 0 ;;
+    -h|--help) sed -n '2,12p' "$0" | sed 's/^# //'; exit 0 ;;
     *) echo "unknown option: $1" >&2; exit 2 ;;
   esac
   shift
 done
-CACHE="$REPO/.skills-cache"
+CACHE="$STATE/skills-cache"
 README_MARK='<!-- psai: managed by install.sh -->'
 
 say() { if [ "$DRY" = 1 ]; then echo "would: $*"; else echo "$*"; fi; }
@@ -140,29 +146,51 @@ skill_dests() {
   return 0
 }
 
-link_base() {
-  if [ -d "$H" ] && [ ! -L "$H" ] && [ "$(cd "$H" && pwd -P)" = "$REPO" ]; then return; fi   # PSAI_HOME is the clone itself
+# The home (ADR 0011, section 1.3): a folder with framework/ (a link to this clone), overlay/, stacks/ and state/.
+# A home that is still a link to a psai clone (the fork layout) is converted by migration 0002 first.
+setup_home() {
   if [ -L "$H" ]; then
-    [ "$(readlink "$H")" = "$REPO" ] && return
-    echo "error: $H points to $(readlink "$H"), not $REPO. Remove it or run install.sh from that clone." >&2
+    if is_clone "$H"; then
+      PSAI_LINK="$H" PSAI_REPO="$REPO" DRY_RUN="$DRY" bash "$REPO/migrations/0002-fork-to-stacks.sh" || exit 1
+      [ "$DRY" = 1 ] && return
+    else
+      echo "error: $H is a link to $(readlink "$H"), not a psai home. Remove it or set PSAI_HOME." >&2
+      exit 1
+    fi
+  elif [ -e "$H" ] && [ ! -d "$H" ]; then
+    echo "error: $H exists and is not a folder. Move it away first." >&2
     exit 1
-  elif [ -e "$H" ]; then
-    echo "error: $H exists and is not a link. Move it away first." >&2
+  elif [ -d "$H" ] && [ "$(cd "$H" && pwd -P)" = "$REPO" ]; then
+    echo "error: PSAI_HOME is this clone; since 3.0 it is a home folder that links the clone as framework/. Unset it or point it elsewhere." >&2
     exit 1
   fi
-  [ -d "$(dirname "$H")" ] || { say "mkdir $(dirname "$H")"; do_ mkdir -p "$(dirname "$H")"; }
-  say "link $H -> $REPO"
-  do_ ln -s "$REPO" "$H"
+  [ -d "$H" ] || { say "mkdir $H"; do_ mkdir -p "$H"; }
+  if [ -L "$FW" ]; then
+    [ "$(readlink "$FW")" = "$REPO" ] && { home_dirs; return; }
+    if is_clone "$FW"; then say "relink $FW -> $REPO (was $(readlink "$FW"))"; do_ ln -sfn "$REPO" "$FW"
+    else echo "error: $FW points to $(readlink "$FW"), not a psai clone. Remove it first." >&2; exit 1; fi
+  elif [ -e "$FW" ]; then
+    [ "$(cd "$FW" && pwd -P)" = "$REPO" ] || { echo "error: $FW is a psai clone at a release; update it with \`psai update\`, or run its install.sh." >&2; exit 1; }
+  else
+    say "link $FW -> $REPO"; do_ ln -s "$REPO" "$FW"
+  fi
+  home_dirs
+}
+
+home_dirs() {
+  [ -d "$H/stacks" ] || { say "mkdir $H/stacks"; do_ mkdir -p "$H/stacks"; }
+  python3 "$REPO/scripts/stacks.py" overlay --home "$H" $([ "$DRY" = 1 ] && echo --dry-run) | grep . || true
 }
 
 remove_old_base() { # legacy: the pre-rename base link; migrations/0001 holds the logic
   PSAI_LINK="$H" DRY_RUN="$DRY" bash "$REPO/migrations/0001-remove-old-harness-link.sh"
 }
 
-sync_py() { python3 "$REPO/scripts/sync.py" "$@" --root "$REPO"; }
+sync_py() { python3 "$REPO/scripts/sync.py" "$@" --root "$H"; }
+stacks_py() { python3 "$REPO/scripts/stacks.py" "$@" --home "$H"; }
 
 # ---------- skills ----------
-skills_py() { python3 "$REPO/scripts/harness.py" skills --root "$REPO" "$@"; }
+skills_py() { python3 "$REPO/scripts/harness.py" skills --root "$H" "$@"; }
 
 resolve_ref() { # clone ref -> commit, only for a tag or a commit (a branch is not pinned)
   local c="$1" ref="$2"
@@ -170,13 +198,13 @@ resolve_ref() { # clone ref -> commit, only for a tag or a commit (a branch is n
   [[ "$ref" =~ ^[0-9a-f]{7,40}$ ]] && git -C "$c" rev-parse -q --verify "$ref^{commit}" 2>/dev/null
 }
 
-# Fetch each pinned skills.yaml entry into .skills-cache/<name>, checked out at its ref. Network only when the
-# cache is missing, points elsewhere, or doesn't have the ref yet.
+# Fetch each pinned skills.yaml entry (the overlay's and each stack's) into state/skills-cache/<stack>/<name>,
+# checked out at its ref. Network only when the cache is missing, points elsewhere, or doesn't have the ref yet.
 fetch_packs() {
-  local name url path ref c have want
-  while IFS=$'\t' read -r name url path ref; do
+  local stack name url path ref c have want
+  while IFS=$'\t' read -r stack name url path ref; do
     [ -n "$name" ] || continue
-    c="$CACHE/$name"
+    c="$CACHE/$stack/$name"
     if [ -d "$c/.git" ] && [ "$(git -C "$c" config remote.origin.url)" = "$url" ]; then
       want="$(resolve_ref "$c" "$ref" || true)"
       have="$(git -C "$c" rev-parse -q --verify HEAD 2>/dev/null || true)"
@@ -190,50 +218,31 @@ fetch_packs() {
       fi
     else
       say "fetch $name ($url @ $ref) -> $c"; [ "$DRY" = 1 ] && continue
-      rm -rf "$c"; mkdir -p "$CACHE"
+      rm -rf "$c"; mkdir -p "$CACHE/$stack"
       if ! git clone -q --no-checkout "$url" "$c" 2>/dev/null; then echo "skip: can't fetch $name from $url" >&2; rm -rf "$c"; continue; fi
       want="$(resolve_ref "$c" "$ref" || true)"
     fi
     if [ -z "$want" ]; then echo "skip: $name: ref $ref is not a tag or commit in $url" >&2; continue; fi
     git -C "$c" -c advice.detachedHead=false checkout -q --detach "$want"
     [ -f "$c/$path/SKILL.md" ] || echo "skip: $name: no $path/SKILL.md in $url @ $ref" >&2
-  done < <(skills_py packs)
+  done < <(stacks_py packs)
 }
 
-# name<TAB>link target for every skill psai links: skills/, then my-skills/, then fetched packs. The first name wins.
-skill_sources() {
-  local md name path seen=" "
-  for md in "$REPO"/skills/*/SKILL.md; do
-    name="$(basename "$(dirname "$md")")"; seen+="$name "; printf '%s\t%s\n' "$name" "$H/skills/$name"
-  done
-  for md in "$REPO"/my-skills/*/SKILL.md; do
-    [ -f "$md" ] || continue
-    name="$(basename "$(dirname "$md")")"
-    case "$seen" in *" $name "*) echo "skip: my-skills/$name clashes with psai's skills/$name; rename yours" >&2; continue ;; esac
-    seen+="$name "; printf '%s\t%s\n' "$name" "$H/my-skills/$name"
-  done
-  while IFS=$'\t' read -r name _ path _; do
-    [ -n "$name" ] && [ -f "$CACHE/$name/$path/SKILL.md" ] || continue
-    case "$seen" in *" $name "*) echo "skip: skills.yaml entry $name clashes with another skill" >&2; continue ;; esac
-    path="${path#./}"; path="${path%/}"; [ "$path" = . ] && path=""
-    seen+="$name "; printf '%s\t%s\n' "$name" "$H/.skills-cache/$name${path:+/$path}"
-  done < <(skills_py packs 2>/dev/null)
-  return 0
-}
+# name<TAB>link target for every skill psai links (scripts/stacks.py skill-sources). The first name wins.
+skill_sources() { stacks_py skill-sources; }
 
 readme_text() {
   cat <<EOT
 $README_MARK
 # Skills in this folder and psai
 
-psai links three kinds of skills here: its own (\`$H/skills/\`), yours (\`$H/my-skills/\`) and other people's,
-pinned in \`$H/skills.yaml\` and fetched into \`$H/.skills-cache/\`. Links into $H are psai's: edit the source,
-not the link. Tools ignore this loose file.
+psai links these skills here: the framework's (\`$H/framework/skills/\`), yours (\`$H/overlay/my-skills/\`), each
+installed stack's (\`$H/stacks/<stack>/my-skills/\`) and other people's, pinned in a \`skills.yaml\` and fetched into
+\`$STATE/skills-cache/\`. Links into $H are psai's: edit the source, not the link. Tools ignore this loose file.
 
-Anything else here is unmanaged. psai lists it (\`python3 $H/scripts/harness.py skills --unmanaged\`) but never
-moves or blocks it. To bring one under psai, run \`$H/install.sh --adopt <name>\`: your own skill moves into
-my-skills/, a skill from a pack becomes a pinned skills.yaml entry. Skills another tool manages go in
-skills.yaml's \`ignore:\` list.
+Anything else here is unmanaged. psai lists it (\`psai skills --unmanaged\`) but never moves or blocks it. To bring
+one under psai, run \`psai adopt <name>\`: your own skill moves into your overlay's my-skills/, a skill from a pack
+becomes a pinned entry in your overlay's skills.yaml. Skills another tool manages go in skills.yaml's \`ignore:\`.
 
 To add or change a skill, use the customize-harness skill.
 EOT
@@ -306,7 +315,7 @@ unlink_file() { if ours_link "$1"; then say "unlink $1"; do_ rm -f "$1"; fi; }
 OC_STUB="$CFG/opencode/plugin/psai.js"   # opencode loads only real files from plugin/, so a stub imports the live one
 install_opencode_stub() {
   if [ -e "$OC_STUB" ] && ! grep -Fxq "$STUB_MARK" "$OC_STUB"; then echo "skip: $OC_STUB exists and is not ours" >&2; return; fi
-  printf '%s\nexport { Psai } from "%s/plugins/opencode/psai.js";\n' "$STUB_MARK" "$H" > "$TMP"
+  printf '%s\nexport { Psai } from "%s/plugins/opencode/psai.js";\n' "$STUB_MARK" "$FW" > "$TMP"
   write_if_changed "$OC_STUB" "$TMP"
 }
 remove_opencode_stub() {
@@ -314,7 +323,7 @@ remove_opencode_stub() {
 }
 
 claude_state() { # "installed" when the psai marketplace points at $H and psai@psai is enabled; "other"; "absent"
-  python3 - "$HOME/.claude/settings.json" "$H" <<'PY'
+  python3 - "$HOME/.claude/settings.json" "$FW" <<'PY'
 import json, sys
 try:
     s = json.load(open(sys.argv[1]))
@@ -330,12 +339,12 @@ install_claude_plugin() {
   local st; st="$(claude_state)"
   [ "$st" = installed ] && return
   if ! command -v claude >/dev/null; then
-    echo "skip: claude CLI not found; later run: claude plugin marketplace add $H && claude plugin install psai@psai" >&2
+    echo "skip: claude CLI not found; later run: claude plugin marketplace add $FW && claude plugin install psai@psai" >&2
     return
   fi
   [ -f "$HOME/.claude/settings.json" ] && backup "$HOME/.claude/settings.json"
-  if [ "$st" = other ]; then say "claude: re-point marketplace psai to $H"; do_ claude plugin marketplace remove psai >/dev/null 2>&1 || true; fi
-  say "claude: plugin marketplace add $H"; do_ claude plugin marketplace add "$H" >/dev/null
+  if [ "$st" = other ]; then say "claude: re-point marketplace psai to $FW"; do_ claude plugin marketplace remove psai >/dev/null 2>&1 || true; fi
+  say "claude: plugin marketplace add $FW"; do_ claude plugin marketplace add "$FW" >/dev/null
   say "claude: plugin install psai@psai"; do_ claude plugin install psai@psai --scope user >/dev/null
 }
 
@@ -354,8 +363,11 @@ remove_legacy() { # v1 and early v2 wrote import lines and inlined blocks; the p
   done
 }
 
+relink() { fetch_packs; link_skills; }
+
 install() {
-  link_base
+  setup_home
+  [ "$DRY" = 1 ] && [ -L "$H" ] && { echo "psai: install done (dry run; the rest follows the conversion)"; return; }
   if [ -n "$ADOPT" ]; then
     skills_py adopt "$ADOPT" $([ "$DRY" = 1 ] && echo --dry-run) || exit 1
   fi
@@ -363,10 +375,10 @@ install() {
   link_skills
   remove_legacy
   has_claude && install_claude_plugin
-  has_pi && link_file "$HOME/.pi/agent/extensions/psai.ts" "$H/plugins/pi/psai.ts"
-  has_omp && link_file "$HOME/.omp/agent/extensions/psai.ts" "$H/plugins/omp/psai.ts"
+  has_pi && link_file "$HOME/.pi/agent/extensions/psai.ts" "$FW/plugins/pi/psai.ts"
+  has_omp && link_file "$HOME/.omp/agent/extensions/psai.ts" "$FW/plugins/omp/psai.ts"
   has_opencode && install_opencode_stub
-  link_file "$BIN/psai" "$H/scripts/psai.py"
+  link_file "$BIN/psai" "$FW/scripts/psai.py"
   case ":$PATH:" in *":$BIN:"*) ;; *) [ "$DRY" = 1 ] || echo "note: $BIN is not on your PATH; add it to run \`psai\`" >&2 ;; esac
   sync_py migrate --link "$H" $([ "$DRY" = 1 ] && echo --dry-run) || echo "psai: a migration failed; it runs again next install" >&2
   [ "$DRY" = 1 ] || sync_py installed --record > /dev/null
@@ -389,11 +401,15 @@ uninstall() {
   remove_opencode_stub
   unlink_file "$BIN/psai"
   remove_old_base
-  if [ -L "$H" ] && [ "$(readlink "$H")" = "$REPO" ]; then
+  if [ -L "$FW" ] && [ "$(readlink "$FW")" = "$REPO" ]; then
+    say "unlink $FW"
+    do_ rm -f "$FW"
+  fi
+  if [ -L "$H" ] && [ "$(readlink "$H")" = "$REPO" ]; then   # a fork-layout home that was never converted
     say "unlink $H"
     do_ rm -f "$H"
   fi
-  echo "psai: uninstall done$([ "$DRY" = 1 ] && echo ' (dry run)'). Backups (*.psai-backup) were kept."
+  echo "psai: uninstall done$([ "$DRY" = 1 ] && echo ' (dry run)'). Kept: backups (*.psai-backup), your overlay, the stacks and the state in $H."
 }
 
 "$MODE"

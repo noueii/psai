@@ -29,6 +29,15 @@ psai is meant to be forked. The **Owner** column says who owns each path:
 | the machinery | `skills/`, `plugins/`, `scripts/`, `migrations/`, `schemas/`, `install.sh`, `VERSION`, `evals/` (except your scenarios), `docs/`, `.claude-plugin/` | | upstream |
 | the core instructions and this map | `instructions/global.md`, `LAYOUT.md`, every `README.md` | | upstream |
 
-Folder READMEs (`<folder>/README.md`) describe each folder and are always allowed. `.skills-cache/` holds the fetched `skills.yaml` entries; install.sh writes it and git ignores it. `.state/` is this machine's local state (`$PSAI_STATE` moves it): the session ledger, the stage worktree where changes wait for the retro's or sync's PR, retro reports, the install and migration records and the drift baseline. Git ignores it and it is never shared.
+Folder READMEs (`<folder>/README.md`) describe each folder and are always allowed.
+
+## The home (one machine; ADR 0011)
+`~/.psai` (`$PSAI_HOME` moves it) is a folder that install.sh sets up:
+- `framework/`: a link to the psai clone install.sh ran from;
+- `overlay/`: your stack `nostack`, a git repo created on install. It holds `stack.yaml`, `stacks.yaml` (the installed stacks), and the paths marked **you** above: your own content, `instructions/owner.md`, `my-skills/`, `skills.yaml`, knowledge and every inbox;
+- `stacks/<name>/`: each installed stack;
+- `state/`: this machine's local state (`$PSAI_STATE` moves it): the session ledger, the stage worktree where changes wait for the retro's or sync's PR, retro reports, the install and migration records, the drift baseline, and `skills-cache/<stack>/` with the fetched `skills.yaml` entries. It is never shared.
+
+A home that is still a link to a fork clone is converted on the next install (migration 0002): your files move into `overlay/`, `.state/` into `state/`, and the clone's own files are left alone.
 
 Precedence, most specific wins: the step or role and its `read:` files > `instructions/owner.md` > `instructions/global.md`. psai has no per-repo layer: a rule for one repo goes in that repo's own AGENTS.md or docs (ADR 0011, Q2). Content is found by name with `psai resolve`, never by a hard-coded path.

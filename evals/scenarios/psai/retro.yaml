@@ -4,7 +4,7 @@ about: >-
   The example workflow has no retro or sync node. work runs the retro after ready anyway: the final message ranks its
   findings, and the owner's stated preference (captured to an inbox) goes into ONE local psai/retro- branch. With no
   sync node, sync never runs.
-content: harness-content
+stacks: { example: stacks/example }
 fixture: textkit
 task: Add `reverse(text)` to textkit/text.py, returning the text reversed, and export it from textkit.
 owner:

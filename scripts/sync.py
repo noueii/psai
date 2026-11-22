@@ -113,7 +113,7 @@ def follow_ref(root):
 
 
 def base_ref(root):
-    """Where PR branches start: the fork's default branch, else the live HEAD."""
+    """Where PR branches start: the target's default branch on origin, else its HEAD."""
     if has_remote(root, "origin"):
         b = default_branch(root, "origin")
         if b and rev(root, f"origin/{b}"):
@@ -738,7 +738,7 @@ def _print_one(res, kind):
 
 
 def main(argv):
-    ap = argparse.ArgumentParser(prog="psai sync", description="Sync this machine with the fork; see the module doc.")
+    ap = argparse.ArgumentParser(prog="psai sync", description="Sync this machine: framework, overlay, stacks, tools; see the module doc.")
     ap.add_argument("cmd", nargs="?", default="run",
                     choices=["run", "check", "update", "drift", "baseline", "stage", "pr", "migrate", "installed"])
     ap.add_argument("--root", default=None)
@@ -824,7 +824,7 @@ def main(argv):
         print(f"  {k}: {d}")
     kinds = {k for k, _ in why}
     if "diverged" in kinds:
-        print("psai update waiting: needs you (the live clone and the fork have diverged); nothing changed")
+        print("psai update waiting: needs you (your overlay and its remote have diverged); nothing changed")
         return CONFLICT
     if kinds & {"behind", "install", "migrations", "framework"}:
         status, detail = update(root)

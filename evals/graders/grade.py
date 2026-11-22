@@ -24,7 +24,7 @@ expect keys (all optional):
   branches {prefix: n}    the harness copy has exactly n local branches starting with each prefix
   retro_findings          the final message has a Retro section with findings ranked [high]/[medium]/[low]
   no_sync                 the sync skill never ran: no psai/sync- branch, no last sync, no sync command in the run
-  only_user_paths         the harness changes touch only paths LAYOUT.md gives to the user (new READMEs allowed)
+  only_user_paths         the run changed only the overlay: the framework copy is untouched
   router_invoked          the agent used the request-router skill (Skill tool or reading its SKILL.md)
   no_workflow             no workflow node was entered
   role_used_skill <name>  a role agent (subagent) invoked the skill or read its SKILL.md (Claude Code)
@@ -44,8 +44,8 @@ import sys
 import yaml
 
 
-def _sh(cmd, cwd):
-    p = subprocess.run(cmd, cwd=cwd, shell=True, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+def _sh(cmd, cwd, env=None):
+    p = subprocess.run(cmd, cwd=cwd, shell=True, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, env=env)
     return p.returncode, p.stdout
 
 
@@ -129,8 +129,8 @@ def grade(expect, log, ctx):
     for m in expect.get("owner_rules_mention", []):
         op = os.path.join(h, "instructions", "owner.md")
         add(f"owner.md mentions '{m}'", os.path.exists(op) and m.lower() in open(op).read().lower(), "")
-    for c in expect.get("commands", []):
-        rc, o = _sh(c, h)
+    for c in expect.get("commands", []):  # run in the overlay, with the run's PSAI_HOME and the psai command
+        rc, o = _sh(c, h, ctx.get("env"))
         add(f"passes: {c}", rc == 0, o.strip().splitlines()[-1] if o.strip() else "")
     if "branch_prefix" in expect:
         rc, o = _sh("git branch --format='%(refname:short)'", h)
@@ -181,7 +181,7 @@ def grade(expect, log, ctx):
             (m.group(0)[:300] if m else final[-300:]))
     if expect.get("no_sync"):
         t = log.get("text") or ""
-        sj = os.path.join(h, ".state", "sync.json")
+        sj = os.path.join(ctx.get("state") or os.path.join(h, ".state"), "sync.json")
         last = (yaml.safe_load(open(sj)) or {}).get("last_sync") if os.path.exists(sj) else None
         cmd = re.search(r'"command": "[^"]*psai(\.py)? sync (check|update|pr|run|drift)|"skill": "[^"]*\bsync"|skills/sync/SKILL\.md', t)
         add("sync never ran", not any(b.startswith("psai/sync-") for b in brs) and not last and not cmd,
@@ -192,14 +192,9 @@ def grade(expect, log, ctx):
         add("no workflow ran", not path, " -> ".join(path))
     for m in expect.get("answer_mentions", []):
         add(f"answer mentions {m}", m.lower() in final.lower(), final[-200:])
-    if expect.get("only_user_paths"):
-        sys.path.insert(0, os.path.join(h, "scripts"))
-        import harness  # noqa: E402
-        _, changed = _sh("git diff --name-only main HEAD; git status --porcelain | cut -c4-", h)
+    if expect.get("only_user_paths"):  # ADR 0011: you change your overlay (or a stack you author), never psai
+        fw = ctx.get("framework") or h
+        _, changed = _sh("git diff --name-only main HEAD; git status --porcelain | cut -c4-", fw)
         changed = sorted({c.strip() for c in changed.splitlines() if c.strip()})
-        _, on_main = _sh("git ls-tree -r --name-only main", h)
-        on_main = set(on_main.split())
-        ok_user = set(harness.user_files(h, os.path.join(h, "LAYOUT.md"), changed))
-        bad = [c for c in changed if c not in ok_user and (c in on_main or os.path.basename(c) != "README.md")]
-        add("changes only user-owned paths", not bad, ", ".join(bad)[:300])
+        add("the framework is untouched (changes only in your overlay)", not changed, ", ".join(changed)[:300])
     return out

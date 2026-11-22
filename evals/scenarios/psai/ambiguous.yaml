@@ -1,7 +1,7 @@
 name: ambiguous
 level: L3
 about: A vague task whose answer changes the result. Escalating from `do` is EXPECTED; the run then finishes.
-content: harness-content
+stacks: { example: stacks/example }
 fixture: textkit
 task: Make slugify handle separators better.
 owner:

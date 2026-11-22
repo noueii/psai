@@ -2,10 +2,9 @@
 """Run eval scenarios headless against a tool, with a scripted fake owner. Called by evals/run.sh.
 
 Each run gets a throwaway directory:
-- harness/   a copy of this harness (vanilla), with the scenario's test content overlaid; PSAI_HOME points here;
-- home/      with `stacks:` in the scenario, a stacks-layout home instead (ADR 0011): framework/ links harness/,
-             stacks/<name>/ are copies of the listed fixtures, overlay/ is `overlay:` (or an empty overlay), and
-             PSAI_HOME points here;
+- harness/   a copy of this framework (it ships no content);
+- home/      the run's psai home (ADR 0011), where PSAI_HOME points: framework/ links harness/, stacks/<name>/ are
+             copies of the scenario's `stacks:` fixtures, overlay/ is `overlay:` (or an empty overlay, a git repo);
 - work/      a copy of the fixture repo, a git repo whose origin is remote.git (a local bare repo);
 - bin/gh     a shim that logs and refuses, so nothing reaches GitHub; bin/psai runs the copy's psai command;
 - trace.log  check-diff.sh's lines (PSAI_TRACE).
@@ -49,20 +48,17 @@ def prepare(scn, base):
     shutil.copytree(ROOT, h, ignore=IGNORE, symlinks=True)
     for rel in ("evals/scenarios/psai", "evals/graders"):  # the agent must not see the expected answers
         shutil.rmtree(os.path.join(h, rel), ignore_errors=True)
-    content = scn.get("content")
-    for c in [content] if isinstance(content, str) else (content or []):  # overlays, in order
-        src = os.path.join(ROOT, "evals", "fixtures", c)
-        shutil.copytree(src, h, dirs_exist_ok=True, ignore=shutil.ignore_patterns("README.md"))
-    for rel in scn.get("strip") or []:  # e.g. hide the test content from a bootstrap run
-        shutil.rmtree(os.path.join(h, rel), ignore_errors=True)
     git_init(h, "harness")
-    home = stacks_home(scn, base, h) if scn.get("stacks") else h
+    home = stacks_home(scn, base, h)
+    for rel in scn.get("strip") or []:  # hide something: stacks/... and overlay/... in the home, else in the copy
+        shutil.rmtree(os.path.join(home if rel.split("/")[0] in ("stacks", "overlay") else h, rel), ignore_errors=True)
+    if any(r.split("/")[0] not in ("stacks", "overlay") for r in scn.get("strip") or []):
+        sh("git add -A && git -c user.email=eval@local -c user.name=eval commit -qm strip", h, check=False)
     # this machine's state for the copy: installed at HEAD, migrations done (never run against the real HOME), and a
     # drift baseline of the real HOME (read only), so sync has nothing to update or adopt unless the run creates it
     sh(f"python3 scripts/sync.py installed --record --root {home} && python3 scripts/sync.py baseline --root {home}", h)
     mig = {os.path.basename(m): "eval" for m in sorted(os.listdir(os.path.join(h, "migrations"))) if m.endswith(".sh")}
-    state = os.path.join(home, "state" if home != h else ".state")
-    with open(os.path.join(state, "migrations.json"), "w") as f:
+    with open(os.path.join(home, "state", "migrations.json"), "w") as f:
         json.dump(mig, f)
     fx = [os.path.join(d, scn["fixture"]) for d in (scn.get("_fixtures") or []) + [os.path.join(ROOT, "evals", "fixtures")]]
     shutil.copytree(next((d for d in fx if os.path.isdir(d)), fx[-1]), w, ignore=IGNORE)
@@ -85,7 +81,7 @@ def stacks_home(scn, base, h):
     os.makedirs(os.path.join(home, "stacks"))
     os.symlink(h, os.path.join(home, "framework"))
     ents = []
-    for name, fx in scn["stacks"].items():  # a fixture folder, a list of them (overlaid in order), or a path
+    for name, fx in (scn.get("stacks") or {}).items():  # a fixture folder, a list of them (overlaid in order), or a path
         dest = os.path.join(home, "stacks", name)
         for i, f in enumerate([fx] if isinstance(fx, str) else fx):
             shutil.copytree(os.path.join(ROOT, "evals", "fixtures", f), dest, ignore=IGNORE, dirs_exist_ok=i > 0)
@@ -161,7 +157,8 @@ class Claude:
             sys.path.insert(0, os.path.join(h, "scripts"))
             import stacks  # noqa: PLC0415
             for n, target in stacks.skill_sources(env["PSAI_HOME"]):
-                os.symlink(target, os.path.join(sk, n))
+                if not os.path.lexists(os.path.join(sk, n)):  # a later phase reuses the links
+                    os.symlink(target, os.path.join(sk, n))
         for sub in ("skills", "my-skills") if env["PSAI_HOME"] == h else ():
             d = os.path.join(h, sub)
             for n in sorted(os.listdir(d)) if os.path.isdir(d) else []:
@@ -244,8 +241,15 @@ class Omp:
 
     def __init__(self, h, cwd, env, model, budget):
         cfg = os.path.join(os.path.dirname(h), "omp-config.yml")
+        sk = os.path.join(os.path.dirname(h), "omp-skills")  # the framework's, the overlay's and each stack's skills
+        os.makedirs(sk, exist_ok=True)
+        sys.path.insert(0, os.path.join(h, "scripts"))
+        import stacks  # noqa: PLC0415
+        for n, target in stacks.skill_sources(env["PSAI_HOME"]):
+            if not os.path.lexists(os.path.join(sk, n)):
+                os.symlink(target, os.path.join(sk, n))
         with open(cfg, "w") as f:
-            yaml.safe_dump({"skills": {"customDirectories": [os.path.join(h, "skills"), os.path.join(h, "my-skills")], "enableAgentsUser": False,
+            yaml.safe_dump({"skills": {"customDirectories": [sk], "enableAgentsUser": False,
                                        "enableClaudeUser": False, "enableCodexUser": False, "enablePiUser": False,
                                        "enableAgentsProject": False, "enableClaudeProject": False,
                                        "enablePiProject": False}}, f)
@@ -307,7 +311,7 @@ TOOLS = {"claude": Claude, "omp": Omp}
 
 
 def run_phase(tool, phase, h, w, base, model, budget, home=None):
-    cwd = (os.path.join(home, "overlay") if home and home != h else h) if phase.get("cwd") == "harness" else w
+    cwd = os.path.join(home, "overlay") if phase.get("cwd") == "harness" else w
     env = dict(os.environ, PSAI_HOME=home or h, PSAI_TRACE=os.path.join(base, "trace.log"), PSAI_EVAL="1",
                PATH=os.path.join(base, "bin") + os.pathsep + os.environ["PATH"],
                GIT_AUTHOR_NAME="eval", GIT_AUTHOR_EMAIL="eval@local", GIT_COMMITTER_NAME="eval",
@@ -406,11 +410,13 @@ def run_scenario(path, tool, model, budget, keep, stack=None, prepare_only=False
     for ph in phases:
         open(os.path.join(base, "trace.log"), "a").write(f"phase {ph.get('name', 'main')}\n")
         log = run_phase(tool, ph, h, w, base, model, budget, home)
-        gh = os.path.join(home, "overlay") if home != h else h  # what the agent changes: the overlay, or the copy
+        gh = os.path.join(home, "overlay")  # what the agent changes: the overlay (your own stack)
         branches = sh("git branch --format='%(refname:short)'", gh).stdout.split()
         sys.path.insert(0, os.path.join(h, "scripts"))
-        found = use_staged(gh, home if home != h else None) if ph.get("cwd") == "harness" else {}
+        found = use_staged(gh, home) if ph.get("cwd") == "harness" else {}
+        env = dict(os.environ, PSAI_HOME=home, PATH=os.path.join(base, "bin") + os.pathsep + os.environ["PATH"])
         checks = grade.grade(ph.get("expect") or {}, log, dict(base=base, harness=gh, work=w, refs0=refs0, head0=head0,
+                                                            framework=h, state=os.path.join(home, "state"), env=env,
                                                             remote_refs=remote_refs(base), branches=branches, staged=found))
         ok = ok and all(c[1] for c in checks)
         tr = open(os.path.join(base, "trace.log")).read().split(f"phase {ph.get('name', 'main')}\n")[-1].splitlines()
@@ -429,8 +435,8 @@ def run_scenario(path, tool, model, budget, keep, stack=None, prepare_only=False
     if scn.get("level") == "L4" and ok:
         out = os.path.join(ROOT, "evals", "results", f"{time.strftime('%Y%m%d-%H%M%S')}-{scn['name']}-{tool}-content")
         for d in ("workflows", "steps", "roles", "guides", "templates", "instructions", "knowledge"):
-            if os.path.isdir(os.path.join(h, d)):
-                shutil.copytree(os.path.join(h, d), os.path.join(out, d), ignore=IGNORE)
+            if os.path.isdir(os.path.join(home, "overlay", d)):
+                shutil.copytree(os.path.join(home, "overlay", d), os.path.join(out, d), ignore=IGNORE)
         summary["content_saved_to"] = os.path.relpath(out, ROOT)
     if not keep:
         shutil.rmtree(base, ignore_errors=True)

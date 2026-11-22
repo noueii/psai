@@ -3,7 +3,7 @@
 # from the fixture stacks, no network, no AI, never the real HOME. Prints "  ok   ..." / "  FAIL ..." (check.sh runs it).
 set -uo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd -P)"
-FIX="$ROOT/evals/fixtures/harness-content"; FS="$ROOT/evals/fixtures/stacks"
+FIX="$ROOT/evals/fixtures/stacks/example"; FS="$ROOT/evals/fixtures/stacks"
 [ -d "$FIX" ] || exit 0
 T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT
 unset PSAI_HOME PSAI_STATE PSAI_TRACE PSAI_ROLE PSAI_EVAL XDG_CONFIG_HOME

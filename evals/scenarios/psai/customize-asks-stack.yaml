@@ -3,7 +3,7 @@ level: L3
 about: >-
   With a stack installed, adding a new piece goes through customize-harness, which first asks which stack it goes to
   (the overlay, or a new stack); the owner picks their overlay, so the new guide is staged there.
-stacks: { example: harness-content }
+stacks: { example: stacks/example }
 fixture: textkit
 phases:
   - name: change-a-rule

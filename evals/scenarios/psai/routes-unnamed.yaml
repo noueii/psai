@@ -1,7 +1,7 @@
 name: routes-unnamed
 level: L3
 about: A request that matches a workflow without naming it is routed through that workflow.
-content: harness-content
+stacks: { example: stacks/example }
 fixture: textkit
 task: Add one line to the README saying textkit needs nothing beyond the Python standard library.
 owner:

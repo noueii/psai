@@ -483,7 +483,7 @@ def adopt(root, name, home=None, dry=False, ref=None, to=None):
             if not dry:
                 os.makedirs(backup, exist_ok=True)
                 shutil.move(loc["path"], os.path.join(backup, loc["where"].replace("~/", "").replace("/", "_")))
-    dry or print(f"adopt: {name} moved into my-skills/; commit it in your fork")
+    dry or print(f"adopt: {name} moved into my-skills/; the retro or sync PR carries it (or commit it yourself)")
     return 0
 
 
@@ -542,7 +542,7 @@ def main(argv):
             for w in warns:
                 print("  warn", w)
             print(f"  info {len(unmanaged)} unmanaged skill(s) in your tool folders"
-                  + (f": {', '.join(unmanaged)} (adopt with customize-harness or install.sh --adopt <name>)" if unmanaged else ""))
+                  + (f": {', '.join(unmanaged)} (adopt with customize-harness or `psai adopt <name>`)" if unmanaged else ""))
         return 1 if errs else 0
     idx = registry(root, project=project)
     if a.unmanaged:

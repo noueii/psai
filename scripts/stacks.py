@@ -111,7 +111,7 @@ def migrate_fork(home, clone, dry=False):
     files = subprocess.run(["git", "-C", clone, "ls-files", "-co", "--exclude-standard"],
                            capture_output=True, text=True).stdout.split("\n")
     layout = os.path.join(clone, "LAYOUT.md")
-    mine = harness.user_files(clone, layout, [f for f in files if f]) if os.path.exists(layout) else []
+    mine = harness.user_files(clone, layout, [f for f in files if f])
     say(dry, f"turn {home} (a link to the fork {clone}) into a psai home; framework/ links the clone")
     if not dry:
         os.remove(home)

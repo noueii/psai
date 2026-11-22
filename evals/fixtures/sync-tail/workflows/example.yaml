@@ -1,4 +1,4 @@
-# The example workflow with a retro -> sync tail (overlay on harness-content). Test content only.
+# The example workflow with a retro -> sync tail (overlay on the example test stack). Test content only.
 name: example
 when: Any task that changes files in a repo.
 start: do

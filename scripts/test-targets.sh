@@ -5,7 +5,7 @@
 # update refused while a stack doesn't support it. Temp HOMEs, local bare git remotes, no network, no AI.
 set -uo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd -P)"
-FIX="$ROOT/evals/fixtures/harness-content"
+FIX="$ROOT/evals/fixtures/stacks/example"
 [ -d "$FIX" ] || exit 0
 T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT
 unset PSAI_HOME PSAI_STATE PSAI_TRACE PSAI_ROLE PSAI_EVAL XDG_CONFIG_HOME
@@ -69,7 +69,10 @@ fw0="$(git -C "$H/framework" rev-parse HEAD)"
 out="$(PSAI_EVAL=1 ps update 2>&1)"; rc=$?
 check "the overlay fast-forwards, keeping the local inbox entry" bash -c "grep -q 'from the other machine' '$H/overlay/knowledge/inbox.md' && grep -q '2026-11-22: local' '$H/overlay/knowledge/inbox.md'"
 check "a framework release outside a stack's psai range is refused (exit 4), nothing moved" bash -c "test $rc = 4 && grep -q 'outside the psai range of: example, mine' <<< \"\$1\" && test \"\$(git -C '$H/framework' rev-parse HEAD)\" = '$fw0'" _ "$out"
+sig() { (cd "$H" && find stacks/ overlay/ -path overlay/.git -prune -o -path overlay/stack.yaml -prune -o -type f -print0 | sort -z | xargs -0 md5sum | md5sum); }
+before="$(sig)"
 PSAI_EVAL=1 ps update --force > "$T/force.out" 2>&1
+check "a framework update never touches the stacks or the overlay (but its disable: list)" test "$before" = "$(sig)"
 check "--force takes it and disables those stacks in your overlay" bash -c "test \"\$(cat '$H/framework/VERSION')\" = 9.0.0 && python3 -c \"import yaml,sys; m=yaml.safe_load(open('$H/overlay/stack.yaml')); sys.exit(0 if set(m['disable'])=={'example','mine'} else 1)\""
 check "status: one line per stack" bash -c "$(declare -f ps); T='$T' h='$h' H='$H'; o=\"\$(ps status)\"; grep -q '^stack example: 1.0.0 at v1.0.0 (pinned); needs psai' <<< \"\$o\" && grep -q '^stack mine: ' <<< \"\$o\""
 exit $((fails > 0))

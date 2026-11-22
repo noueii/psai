@@ -4,8 +4,8 @@ about: >-
   From the vanilla harness, a generic user bootstraps their first workflow with customize-harness, through a short
   scripted interview. The result must be filed per LAYOUT (user-owned paths only), pass check.sh, route, and then
   run a fixture task.
-content: null
-strip: [evals/fixtures/harness-content]   # build from the interview, not by copying the test content
+
+strip: [evals/fixtures/stacks]   # build from the interview, not by copying the test content
 fixture: textkit
 phases:
   - name: bootstrap
@@ -45,7 +45,7 @@ phases:
       may_change: { maker: anything, tester: tests }
       routes_to: [change]
       only_user_paths: true
-      commands: ["scripts/check.sh --quick", "python3 scripts/simulate.py ."]
+      commands: ["psai check ."]
       staged: true
       escalations: { max: 0 }
       no_push: true

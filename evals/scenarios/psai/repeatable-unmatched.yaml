@@ -3,7 +3,7 @@ level: L3
 about: >-
   A repeatable task that no workflow covers (a weekly report, no repo change) escalates and offers customize-harness,
   instead of improvising a workflow.
-content: harness-content
+stacks: { example: stacks/example }
 fixture: textkit
 task: >-
   Every Monday from now on, give me a report of the TODO and FIXME comments in this repo, grouped by file. Start

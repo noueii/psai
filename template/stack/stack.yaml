@@ -1,0 +1,9 @@
+# This stack's manifest (psai's schemas/stack.schema.json). `psai check .` validates it.
+schema: 1
+name: __NAME__
+version: 0.1.0                     # semver; `psai publish` tags v<version>
+description: "__DESCRIPTION__"
+author: { name: "__AUTHOR__" }     # add github: <login>; suggestions from users' retros go there
+psai: "__PSAI__"                   # the psai versions this stack supports
+exports: {}                        # what other stacks may use, e.g. { workflows: [review], guides: ["*"] }
+routing: { priority: 50 }          # the tie-break when two stacks' workflows both fit (higher first)

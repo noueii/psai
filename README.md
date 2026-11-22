@@ -16,6 +16,9 @@ A tool-agnostic agent harness for Claude Code, opencode, pi and oh-my-pi (omp). 
 
 From then on, give agents tasks as usual. `work` routes each task to one of your workflows and runs it, then runs a retro.
 
+## Make a stack
+`psai new-stack acme` creates `./acme` from [template/stack/](template/stack/stack.yaml): a git repo with a `stack.yaml`, a README per content folder and a CI workflow, added to this machine as a dev stack (psai reads your working clone). Build its workflows with the `customize-harness` skill, which asks first which stack a change goes to. `psai check acme` (or `psai check .` in its folder) validates it; `psai eval acme` runs its eval scenarios in a temp home.
+
 ## Add stacks
 A stack is a git repo of workflows, roles, steps, guides, templates and skills with a `stack.yaml` (ADR 0011). Install as many as you like; every name is namespaced (`stack:workflow`), and your overlay `nostack` always wins:
 ```sh

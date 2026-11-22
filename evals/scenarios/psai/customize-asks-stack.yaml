@@ -1,0 +1,26 @@
+name: customize-asks-stack
+level: L3
+about: >-
+  With a stack installed, adding a new piece goes through customize-harness, which first asks which stack it goes to
+  (the overlay, or a new stack); the owner picks their overlay, so the new guide is staged there.
+stacks: { example: harness-content }
+fixture: textkit
+phases:
+  - name: change-a-rule
+    cwd: harness
+    task: >-
+      Use customize-harness to add a guide for writing release notes: one line per change, under 80 characters.
+    owner:
+      max_turns: 8
+      answers:
+        - match: "which stack|stack does this|overlay|nostack|new stack|author"
+          answer: My overlay (nostack).
+        - match: "scope|everywhere|this workflow"
+          answer: Everywhere.
+      default: Do what you recommend, and stage it.
+    expect:
+      first_question: "stack|overlay"
+      new_files_in: [guides]
+      staged: true
+      escalations: { max: 0 }
+      no_push: true

@@ -11,7 +11,10 @@
   psai adopt <skill> [--to <dev stack>]   bring an unmanaged skill into your overlay (or a stack you author)
   psai skills [list|check|brief|...]      the live skill registry
   psai ledger [list|show|...]             the local session ledger
-  psai check [args]                       scripts/check.sh
+  psai check [<stack>|<path>] [--quick]   L0 + L2 for one stack (with your overrides), or every installed stack;
+                                          psai check --framework [args] runs psai's own tests (scripts/check.sh)
+  psai new-stack <name> [--dir D]         start a stack from template/stack (a git repo), added as a dev stack
+  psai eval <stack|path> [scenario...] [--tool T] [--runs N]   the stack's AI evals in a temp home
   psai stack add|remove|update|list|sync|diff ...   install and manage stacks (scripts/stacks.py)
   psai resolve model <stack>:<role> [--tool T]   the role's model for a tool (scripts/models.py)
   psai setup models [--set <tool>.<tier>=<id>]  write your overlay's tier map (fast | balanced | strong per tool)
@@ -206,7 +209,24 @@ def main(argv):
     if cmd == "skills":
         return run(py + [os.path.join(HERE, "harness.py"), "skills", *rest])
     if cmd == "check":
-        return run(["bash", os.path.join(REPO, "scripts", "check.sh"), *rest])
+        import stacks  # noqa: PLC0415
+        return stacks.check_main(rest)
+    if cmd == "new-stack":
+        import argparse  # noqa: PLC0415
+        import stacks  # noqa: PLC0415
+        ap = argparse.ArgumentParser(prog="psai new-stack")
+        ap.add_argument("name")
+        ap.add_argument("--dir", help="where to create it (default ./<name>)")
+        ap.add_argument("--description")
+        ap.add_argument("--no-add", action="store_true", help="don't add it as a dev stack")
+        a = ap.parse_args(rest)
+        try:
+            return stacks.new_stack(a.name, a.dir, a.description, not a.no_add)
+        except stacks.StackError as e:
+            print(f"psai new-stack: {e}", file=sys.stderr)
+            return 1
+    if cmd == "eval":
+        return run(["bash", os.path.join(REPO, "evals", "run.sh"), "--stack", *rest])
     if cmd in ("context", "role-context"):
         return run(py + [os.path.join(HERE, "harness.py"), cmd, *(rest or [r])])
     if cmd in ("graph", "simulate"):

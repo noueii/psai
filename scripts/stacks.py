@@ -694,30 +694,95 @@ def effective(h, stack, dest):
     return dest
 
 
-def check_stack(name, h=None):
-    """L0 (content, refs through resolve) and L2 (simulate) for one installed stack, overrides in place of the
-    originals. 0 = pass."""
+def check_dir(d, name, h, label=None, overrides=0):
+    """L0 (content, refs through resolve, LAYOUT placement, stack.yaml, skills config, fresh diagrams) and L2
+    (simulate) for one stack folder. 0 = pass."""
+    import graph  # noqa: PLC0415
     import harness  # noqa: PLC0415
     import simulate  # noqa: PLC0415
+    label = label or name
+    meta_path = os.path.join(d, "stack.yaml")
+    errs = harness.validate(d, h) + harness.check_layout(d, os.path.join(FW, "LAYOUT.md"))
+    if os.path.exists(meta_path):
+        errs += res.validate_stack(res.load_stack(d), overlay=name == res.OVERLAY)
+    elif name != res.OVERLAY:
+        errs.append("stack.yaml missing (psai new-stack makes one)")
+    errs += [f"{s_}: workflow diagram missing or stale (psai graph {label} --update-readme)" for s_ in graph.refresh(d, False)]
+    for e in errs:
+        print(f"  FAIL {label}: {e}")
+    print(f"  {'ok  ' if not errs else 'FAIL'} {label}: content and refs" + (f" ({overrides} override(s) in place)" if overrides else ""))
+    if name != res.OVERLAY:  # the tools' skill folders are flat: unprefixed names collide across stacks
+        for sk, _p in skillreg._entries(os.path.join(d, "my-skills")):
+            if not sk.startswith(f"{name}-"):
+                print(f"  warn {label}: my-skills/{sk}: prefix your skill names ({name}-{sk}) so they don't "
+                      "collide with other stacks' in the tools' flat folders")
+    rc = simulate.main(d)
+    return 1 if errs or rc else 0
+
+
+def check_stack(name, h=None):
+    """check_dir for one installed stack, with the overlay's overrides in place of the originals (ADR 0011, 6)."""
     import tempfile  # noqa: PLC0415
     h = h or res.Home()
     if h.get(name) is None:
         raise StackError(f"no stack {name} installed")
+    if name == res.OVERLAY:
+        return check_dir(h.overlay_path, name, h)
     with tempfile.TemporaryDirectory() as t:
-        d = effective(h, name, os.path.join(t, name)) if name != res.OVERLAY else h.overlay_path
-        errs = harness.validate(d, h) + (res.validate_stack(res.load_stack(d), overlay=name == res.OVERLAY)
-                                          if os.path.exists(os.path.join(d, "stack.yaml")) else [])
-        for e in errs:
-            print(f"  FAIL {name}: {e}")
-        n = len(overrides_of(h, name)) if name != res.OVERLAY else 0
-        print(f"  {'ok  ' if not errs else 'FAIL'} {name}: content and refs" + (f" ({n} override(s) in place)" if n else ""))
-        if name != res.OVERLAY:  # the tools' skill folders are flat: unprefixed names collide across stacks
-            for sk, _p in skillreg._entries(os.path.join(d, "my-skills")):
-                if not sk.startswith(f"{name}-"):
-                    print(f"  warn {name}: my-skills/{sk}: prefix your skill names ({name}-{sk}) so they don't "
-                          "collide with other stacks' in the tools' flat folders")
-        rc = simulate.main(d)
-    return 1 if errs or rc else 0
+        d = effective(h, name, os.path.join(t, name))
+        return check_dir(d, name, h, overrides=len(overrides_of(h, name)))
+
+
+def check_main(argv):
+    """psai check [<stack>|<path>] [--quick]: one stack (installed name or folder), or every installed stack and the
+    overlay. The framework's own tests are scripts/check.sh (`psai check --framework`)."""
+    args = [a for a in argv if a != "--quick"]
+    if "--framework" in args:
+        return subprocess.run(["bash", os.path.join(FW, "scripts", "check.sh"), *[a for a in args if a != "--framework"]]).returncode
+    h = res.Home()
+    if not args:
+        names = [res.OVERLAY] + [st.name for st in h.stacks]
+        return max([check_stack(n, h) for n in names] or [0])
+    rc = 0
+    for a in args:
+        if os.path.isdir(a):
+            d = os.path.abspath(a)
+            name = res.load_stack(d).get("name") or res.OVERLAY
+            rc = max(rc, check_dir(d, name, h, label=a))
+        elif h.get(a) is not None:
+            rc = max(rc, check_stack(a, h))
+        else:
+            print(f"psai check: no installed stack or folder {a!r}", file=sys.stderr)
+            rc = 3
+    return rc
+
+
+def new_stack(name, dest=None, description=None, add_it=True, h=None):
+    """psai new-stack: copy template/stack, fill stack.yaml, git init, and add it as a dev stack."""
+    h = h or res.Home()
+    if name in res.RESERVED or not res.NAME_RX.match(name):
+        raise StackError(f"{name!r} can't be a stack name: [a-z][a-z0-9-]{{1,31}}, and not psai or nostack")
+    dest = os.path.abspath(dest or name)
+    if os.path.exists(dest):
+        raise StackError(f"{dest} already exists")
+    shutil.copytree(os.path.join(FW, "template", "stack"), dest)
+    author = subprocess.run(["git", "config", "user.name"], capture_output=True, text=True).stdout.strip() or "you"
+    major = res._vt(res.framework_version(FW))[0]
+    fill = {"__NAME__": name, "__DESCRIPTION__": description or f"The {name} stack: say in one line what it's for.",
+            "__AUTHOR__": author, "__PSAI__": f">={major}.0 <{major + 1}"}
+    for rel in ("stack.yaml", "README.md"):
+        p = os.path.join(dest, rel)
+        text = open(p).read()
+        for k, v in fill.items():
+            text = text.replace(k, v)
+        open(p, "w").write(text)
+    git(dest, "init", "-q", "-b", "main")
+    git(dest, "add", "-A")
+    git(dest, "commit", "-q", "-m", f"psai new-stack {name}")
+    print(f"psai: created the stack {name} in {dest}")
+    if add_it and not h.compat:
+        add(dest, dev=True, yes=True, h=h)
+    return 0
 
 
 def stack_main(argv):
@@ -742,7 +807,7 @@ def stack_main(argv):
     o_ = sub.add_parser("override", help="copy a stack's file into your overlay's overrides/ to change it there")
     o_.add_argument("ref", help="<stack>:<path>, e.g. acme:roles/reviewer.md")
     o_.add_argument("--in", dest="root", help="the overlay folder to write in (e.g. its stage worktree)")
-    c_ = sub.add_parser("check", help="validate a stack with your overrides in place (L0 + L2)")
+    c_ = sub.add_parser("check", help="validate a stack with your overrides in place (L0 + L2); same as psai check <name>")
     c_.add_argument("name")
     d_ = sub.add_parser("diff", help="a stack's change since its pin, or an override against its original")
     d_.add_argument("name")

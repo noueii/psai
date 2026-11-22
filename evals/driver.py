@@ -64,7 +64,8 @@ def prepare(scn, base):
     state = os.path.join(home, "state" if home != h else ".state")
     with open(os.path.join(state, "migrations.json"), "w") as f:
         json.dump(mig, f)
-    shutil.copytree(os.path.join(ROOT, "evals", "fixtures", scn["fixture"]), w, ignore=IGNORE)
+    fx = [os.path.join(d, scn["fixture"]) for d in (scn.get("_fixtures") or []) + [os.path.join(ROOT, "evals", "fixtures")]]
+    shutil.copytree(next((d for d in fx if os.path.isdir(d)), fx[-1]), w, ignore=IGNORE)
     git_init(w)
     sh(f"git init -q --bare {base}/remote.git && git remote add origin {base}/remote.git && git push -q origin main", w)
     b = os.path.join(base, "bin")
@@ -84,8 +85,10 @@ def stacks_home(scn, base, h):
     os.makedirs(os.path.join(home, "stacks"))
     os.symlink(h, os.path.join(home, "framework"))
     ents = []
-    for name, fx in scn["stacks"].items():
-        shutil.copytree(os.path.join(ROOT, "evals", "fixtures", fx), os.path.join(home, "stacks", name), ignore=IGNORE)
+    for name, fx in scn["stacks"].items():  # a fixture folder, a list of them (overlaid in order), or a path
+        dest = os.path.join(home, "stacks", name)
+        for i, f in enumerate([fx] if isinstance(fx, str) else fx):
+            shutil.copytree(os.path.join(ROOT, "evals", "fixtures", f), dest, ignore=IGNORE, dirs_exist_ok=i > 0)
         ents.append({"name": name, "source": f"fixture:{fx}", "ref": "v0.0.0", "mode": "pinned"})
     ov = os.path.join(home, "overlay")
     if scn.get("overlay"):
@@ -123,6 +126,7 @@ def parse_block(text):
 
 def owner_answer(owner, block, log):
     kind, q = block.get("kind", "escalation"), block.get("question", "")
+    log.setdefault("asked", []).append(f"{kind}: {q}")
     if kind == "review":
         log["reviews"] += 1
         return owner.get("review", "Approved.")
@@ -303,7 +307,7 @@ TOOLS = {"claude": Claude, "omp": Omp}
 
 
 def run_phase(tool, phase, h, w, base, model, budget, home=None):
-    cwd = h if phase.get("cwd") == "harness" else w
+    cwd = (os.path.join(home, "overlay") if home and home != h else h) if phase.get("cwd") == "harness" else w
     env = dict(os.environ, PSAI_HOME=home or h, PSAI_TRACE=os.path.join(base, "trace.log"), PSAI_EVAL="1",
                PATH=os.path.join(base, "bin") + os.pathsep + os.environ["PATH"],
                GIT_AUTHOR_NAME="eval", GIT_AUTHOR_EMAIL="eval@local", GIT_COMMITTER_NAME="eval",
@@ -338,13 +342,13 @@ def run_phase(tool, phase, h, w, base, model, budget, home=None):
     return log
 
 
-def use_staged(h):
+def use_staged(h, home=None):
     """customize-harness stages in the stage worktree; a retro may already have built a psai/ branch from it. Stand in
     for the owner merging it: put the staged files into the copy (uncommitted) or check out that branch, so grading
-    and later phases see them. -> what was found: {stage: [files], branches: [psai/...], other: [non-psai branches]}"""
-    sys.path.insert(0, os.path.join(h, "scripts"))
-    import sync  # noqa: PLC0415
-    staged = sync.stage_changes(h)
+    and later phases see them. In a stacks-layout home, `h` is the overlay. -> what was found: {stage: [files],
+    branches: [psai/...], other: [non-psai branches]}"""
+    import sync  # noqa: PLC0415 (the harness copy's scripts are on sys.path)
+    staged = sync.stage_changes(home or h)
     brs = sh("git branch --format='%(refname:short)'", h).stdout.split()
     found = {"stage": sorted(staged), "branches": [b for b in brs if b.startswith("psai/")],
              "other": [b for b in brs if b != "main" and not b.startswith("psai/")]}
@@ -361,20 +365,52 @@ def use_staged(h):
     return found
 
 
-def run_scenario(path, tool, model, budget, keep):
+def for_stack(scn, stack):
+    """`psai eval <stack>`: run a stack's scenario with that stack (and its requires, from this machine's home)
+    installed, and its own fixture repos first."""
+    sys.path.insert(0, os.path.join(ROOT, "scripts"))
+    import resolve  # noqa: PLC0415
+    path = os.path.abspath(stack) if os.path.isdir(stack) else (resolve.home().get(stack) or resolve.home().overlay).path
+    meta = resolve.load_stack(path)
+    st = {meta.get("name", os.path.basename(path)): path}
+    for r in meta.get("requires") or []:
+        dep = resolve.home().get(r.get("name"))
+        if dep is not None:
+            st.setdefault(r["name"], dep.path)
+    scn.setdefault("stacks", st)
+    scn["_fixtures"] = [os.path.join(path, "evals", "fixtures")]
+    return scn
+
+
+def stack_scenarios(stack):
+    sys.path.insert(0, os.path.join(ROOT, "scripts"))
+    import resolve  # noqa: PLC0415
+    path = os.path.abspath(stack) if os.path.isdir(stack) else resolve.home().get(stack).path
+    d = os.path.join(path, "evals", "scenarios")
+    return sorted(os.path.join(d, f) for f in os.listdir(d) if f.endswith(".yaml")) if os.path.isdir(d) else []
+
+
+def run_scenario(path, tool, model, budget, keep, stack=None, prepare_only=False):
     scn = yaml.safe_load(open(path))
+    if stack:
+        scn = for_stack(scn, stack)
     phases = scn.get("phases") or [{k: scn[k] for k in ("task", "owner", "expect") if k in scn}]
     base = tempfile.mkdtemp(prefix=f"psai-eval-{scn['name']}-")
     h, w, home = prepare(scn, base)
+    if prepare_only:  # for tests: build the run's home and fixture, run no agent
+        print(home)
+        return None
     refs0 = remote_refs(base)
     head0 = sh("git rev-parse HEAD", w).stdout.strip()
     results, ok = [], True
     for ph in phases:
         open(os.path.join(base, "trace.log"), "a").write(f"phase {ph.get('name', 'main')}\n")
         log = run_phase(tool, ph, h, w, base, model, budget, home)
-        branches = sh("git branch --format='%(refname:short)'", h).stdout.split()
-        found = use_staged(h) if ph.get("cwd") == "harness" else {}
-        checks = grade.grade(ph.get("expect") or {}, log, dict(base=base, harness=h, work=w, refs0=refs0, head0=head0,
+        gh = os.path.join(home, "overlay") if home != h else h  # what the agent changes: the overlay, or the copy
+        branches = sh("git branch --format='%(refname:short)'", gh).stdout.split()
+        sys.path.insert(0, os.path.join(h, "scripts"))
+        found = use_staged(gh, home if home != h else None) if ph.get("cwd") == "harness" else {}
+        checks = grade.grade(ph.get("expect") or {}, log, dict(base=base, harness=gh, work=w, refs0=refs0, head0=head0,
                                                             remote_refs=remote_refs(base), branches=branches, staged=found))
         ok = ok and all(c[1] for c in checks)
         tr = open(os.path.join(base, "trace.log")).read().split(f"phase {ph.get('name', 'main')}\n")[-1].splitlines()
@@ -403,7 +439,9 @@ def run_scenario(path, tool, model, budget, keep):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("scenarios", nargs="+")
+    ap.add_argument("scenarios", nargs="*")
+    ap.add_argument("--stack", help="run this stack's evals/scenarios with it installed (psai eval)")
+    ap.add_argument("--prepare-only", action="store_true", help=argparse.SUPPRESS)
     ap.add_argument("--tool", default="claude", choices=sorted(TOOLS))
     ap.add_argument("--model", default="sonnet")
     ap.add_argument("--runs", type=int, default=1)
@@ -411,11 +449,16 @@ def main():
     ap.add_argument("--keep", action="store_true", help="keep the throwaway run directories")
     a = ap.parse_args()
     os.makedirs(os.path.join(ROOT, "evals", "results"), exist_ok=True)
+    scenarios = a.scenarios or (stack_scenarios(a.stack) if a.stack else [])
+    if not scenarios:
+        ap.error("no scenarios (a stack keeps them in evals/scenarios/)")
     allp = []
-    for s in a.scenarios:
+    for s in scenarios:
         passed = 0
         for i in range(a.runs):
-            r = run_scenario(s, a.tool, a.model, a.budget, a.keep)
+            r = run_scenario(s, a.tool, a.model, a.budget, a.keep, a.stack, a.prepare_only)
+            if r is None:
+                break
             passed += r["passed"]
             stamp = time.strftime("%Y%m%d-%H%M%S")
             with open(os.path.join(ROOT, "evals", "results", f"{stamp}-{r['scenario']}-{a.tool}.json"), "w") as f:
@@ -424,6 +467,8 @@ def main():
             print(f"{'PASS' if r['passed'] else 'FAIL'} {r['scenario']} [{a.tool}] run {i + 1}/{a.runs}: "
                   f"{r['seconds']}s, ${r['cost_usd']}" + "".join(f"\n     x {c['name']}: {c['detail']}" for c in bad))
         allp.append((os.path.basename(s), passed, a.runs))
+    if a.prepare_only:
+        return 0
     print("\npass rates:")
     for n, p, t in allp:
         print(f"  {n}: {p}/{t}")

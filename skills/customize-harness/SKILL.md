@@ -5,7 +5,7 @@ description: "Builds and changes the owner's harness setup WITH the owner: boots
 
 # customize-harness
 
-Run `psai` as the nudge says if it isn't on PATH. Everything you write is filed per LAYOUT.md (`psai resolve file psai:LAYOUT.md`), and ONLY in places LAYOUT marks as the owner's. Never edit upstream-owned files (skills, scripts, install.sh, evals except new scenarios, LAYOUT.md, folder READMEs, docs, instructions/global.md), so upstream updates merge cleanly. **Stage, never publish:** edit and validate in the stage worktree `S` (`psai sync stage` prints it), never in the live setup, which sessions read. Make no branch, commit or PR: the retro at the end of the task (or a `sync` node) carries everything in one PR the owner merges.
+Run `psai` as the nudge says if it isn't on PATH. Everything you write is filed per LAYOUT.md (`psai resolve file psai:LAYOUT.md`), and ONLY in places LAYOUT marks as the owner's. Never edit upstream-owned files (skills, scripts, install.sh, evals except new scenarios, LAYOUT.md, folder READMEs, docs, instructions/global.md), so upstream updates merge cleanly. **Stage, never publish:** edit and validate in the stage worktree `S` of the repo you change (`psai stage` for your overlay, `psai stage <stack>` for a stack you author), never in the live setup, which sessions read. Make no branch, commit or PR: the retro at the end of the task (or a `sync` node) carries everything, one PR per repo, which the owner merges.
 
 ## How to ask
 Ask the owner ONE question per message, with the fixed block, kind `question`, node `customize` (`psai resolve file psai:skills/work/escalation.md`). Offer options with your recommendation first. Don't ask what the owner already told you or what LAYOUT.md settles.

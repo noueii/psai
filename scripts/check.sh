@@ -281,6 +281,11 @@ while IFS= read -r line; do
   case "$line" in "  ok   "*) pass "${line#  ok   }" ;; "  FAIL "*) fail "${line#  FAIL }" ;; "L1 "*) echo "  -- ${line#L1 }" ;; esac
 done < <("$ROOT/scripts/test-stacks.sh" 2>/dev/null)
 
+echo "L1 retro and sync in the stacks layout (scripts/test-targets.sh; local bare remotes, no network)"
+while IFS= read -r line; do
+  case "$line" in "  ok   "*) pass "${line#  ok   }" ;; "  FAIL "*) fail "${line#  FAIL }" ;; "L1 "*) echo "  -- ${line#L1 }" ;; esac
+done < <("$ROOT/scripts/test-targets.sh" 2>/dev/null)
+
 echo "L1 uninstall"
 run "$h" --uninstall --dry-run > /dev/null 2>&1
 check "uninstall dry-run changes nothing" test "$after" = "$(snap "$h")"

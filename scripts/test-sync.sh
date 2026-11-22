@@ -94,7 +94,7 @@ check "drift: a new Claude memory file" bash -c "$(declare -f ps reasons); L='$L
 ps sync baseline >/dev/null
 up="$T/upstream.git"; git clone -q --bare "$src" "$up"; (cd "$L" && git remote add upstream "$up")
 O_SAVE="$O"; O="$up"; push_up LAYOUT.md "<!-- upstream -->"; O="$O_SAVE"; (cd "$L" && git fetch -q upstream)
-check "upstream: new commits on the upstream remote" bash -c "$(declare -f ps reasons); L='$L' HM='$HM'; test \"\$(reasons)\" = upstream"
+check "an upstream remote is never merged any more (ADR 0011): no reason to sync" bash -c "$(declare -f ps reasons); L='$L' HM='$HM'; test -z \"\$(reasons)\""
 
 echo "L1 update: fast-forward only, keeps local inbox entries, a conflict changes nothing"
 fresh upd
@@ -177,8 +177,8 @@ out="$(ps sync pr --body-file "$T/body.md")"
 br="psai/sync-box-$today"
 check "exactly one psai/ branch, locally and on the fork" bash -c "test \"\$(git -C '$L' branch --list 'psai/*' | wc -l)\" = 1 && git -C '$L' rev-parse -q --verify '$br' && test \"\$(git -C '$O' branch --list 'psai/*' | tr -d ' ')\" = '$br'"
 check "it carries the staged guide and the inbox entry" bash -c "git -C '$L' show '$br:guides/notes.md' | grep -q 'Keep notes short' && git -C '$L' show '$br:knowledge/inbox.md' | grep -q captured"
-check "it never carries an upstream-owned file edited locally" bash -c "! git -C '$L' diff --name-only '$head0' '$br' | grep -q README.md && grep -q 'Not included' '$L/.state/prs/psai-sync-box-$today.md'"
-check "the description has the summary and the retro report" bash -c "grep -q 'Sync summary' '$L/.state/prs/psai-sync-box-$today.md' && grep -q '\[high\] checks' '$L/.state/prs/psai-sync-box-$today.md'"
+check "it never carries an upstream-owned file edited locally" bash -c "! git -C '$L' diff --name-only '$head0' '$br' | grep -q README.md && grep -q 'Not included' '$L/.state/prs/nostack-psai-sync-box-$today.md'"
+check "the description has the summary and the retro report" bash -c "grep -q 'Sync summary' '$L/.state/prs/nostack-psai-sync-box-$today.md' && grep -q '\[high\] checks' '$L/.state/prs/nostack-psai-sync-box-$today.md'"
 check "the live clone was not switched or committed" bash -c "test \"\$(git -C '$L' rev-parse HEAD)\" = '$head0' && test \"\$(git -C '$L' rev-parse --abbrev-ref HEAD)\" = main"
 check "the stage is emptied, the session marked synced, the report used" bash -c "test ! -e '$S/guides/notes.md' && grep -q '\"synced\": \"$br\"' '$L/.state/sessions/s2.json' && test ! -e '$L/.state/reports/r1.md'"
 out="$(ps sync pr --body-file "$T/body.md")"
@@ -195,15 +195,15 @@ check "gather: the loop that hit its limit, the rejection, the new inbox entry" 
 printf 'workflow example\nnode do\nnode check\nnode approve\nnode report\nnode retro\n' > "$T/trace2"
 printf '# Retro: a task\n## Findings\n1. [medium] knowledge: keep it\n' > "$T/report.md"
 out="$(cd "$L" && HOME="$HM" PSAI_HOME="$L" PSAI_TRACE="$T/trace2" python3 scripts/psai.py retro finish --report "$T/report.md")"
-check "at a retro node with sync ahead: no branch, the report waits for sync" bash -c "grep -q 'sync builds the one PR' <<< \"\$1\" && test -z \"\$(git -C '$L' branch --list 'psai/*')\" && ls '$L/.state/reports/' | grep -q '.md$'" _ "$out"
+check "at a retro node with sync ahead: no branch, the report waits for sync" bash -c "grep -q 'sync builds the PRs' <<< \"\$1\" && test -z \"\$(git -C '$L' branch --list 'psai/*')\" && ls '$L/.state/reports/' | grep -q '.md$'" _ "$out"
 check "the retro is marked done in the ledger" q r-1 "r['retro'] is True"
 (cd "$L" && HOME="$HM" PSAI_HOME="$L" python3 scripts/psai.py sync pr >/dev/null)
-check "then sync's one branch carries the retro report" bash -c "test \"\$(git -C '$L' branch --list 'psai/*' | tr -d ' ')\" = 'psai/sync-box-$today' && grep -q 'keep it' '$L/.state/prs/psai-sync-box-$today.md'"
+check "then sync's one branch carries the retro report" bash -c "test \"\$(git -C '$L' branch --list 'psai/*' | tr -d ' ')\" = 'psai/sync-box-$today' && grep -q 'keep it' '$L/.state/prs/nostack-psai-sync-box-$today.md'"
 fresh ret2
 printf '\n## 2026-11-21: learned\n- Tag: fact\n' >> "$L/knowledge/inbox.md"
 printf 'workflow example\nnode do\nnode check\nnode approve\nnode report\nnode ready\n' > "$T/trace3"
 out="$(cd "$L" && HOME="$HM" PSAI_HOME="$L" PSAI_TRACE="$T/trace3" python3 scripts/psai.py retro finish --report "$T/report.md" --local)"
-check "after a workflow without a sync node: one psai/retro- branch, the report as its description" bash -c "test \"\$(git -C '$L' branch --list 'psai/*' | tr -d ' ')\" = 'psai/retro-box-$today' && grep -q 'keep it' '$L/.state/prs/psai-retro-box-$today.md' && test -z \"\$(git -C '$O' branch --list 'psai/*')\"" _ "$out"
+check "after a workflow without a sync node: one psai/retro- branch, the report as its description" bash -c "test \"\$(git -C '$L' branch --list 'psai/*' | tr -d ' ')\" = 'psai/retro-box-$today' && grep -q 'keep it' '$L/.state/prs/nostack-psai-retro-box-$today.md' && test -z \"\$(git -C '$O' branch --list 'psai/*')\"" _ "$out"
 fresh ret3
 out="$(cd "$L" && HOME="$HM" PSAI_HOME="$L" PSAI_TRACE="$T/trace3" python3 scripts/psai.py retro finish --report "$T/report.md")"
 check "nothing staged or captured: no PR" bash -c "grep -q 'no PR' <<< \"\$1\" && test -z \"\$(git -C '$L' branch --list 'psai/*')\"" _ "$out"

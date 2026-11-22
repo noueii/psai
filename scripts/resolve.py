@@ -330,12 +330,14 @@ def _check_export(stack, path, frm):
                                          f"so {frm} can't reference it")
 
 
-def _skill_dirs(h, stack, name):
+def _skill_dirs(h, stack, name, packs=True):
     """Where stack `stack` may hold skill `name`, in order: framework skills/, my-skills/, its skills.yaml packs."""
     if stack.name == "psai":
         return [os.path.join(stack.path, "skills", name)]
     out = [os.path.join(h.overlay_path, "overrides", stack.name, "my-skills", name)] if stack.name != OVERLAY else []
     out.append(os.path.join(stack.path, "my-skills", name))
+    if not packs:
+        return out
     try:
         with open(os.path.join(stack.path, "skills.yaml")) as f:
             for e in (yaml.safe_load(f) or {}).get("skills") or []:
@@ -346,8 +348,8 @@ def _skill_dirs(h, stack, name):
     return out
 
 
-def _skill_in(h, stack, name):
-    for d in _skill_dirs(h, stack, name):
+def _skill_in(h, stack, name, packs=True):
+    for d in _skill_dirs(h, stack, name, packs):
         if os.path.exists(os.path.join(d, "SKILL.md")):
             return os.path.join(d, "SKILL.md")
     return None
@@ -372,18 +374,21 @@ def resolve_skill(h, ref, frm=None):
             raise ResolveError(NOT_FOUND, f"skill {sname}:{name} not found")
         _check_export(st, f"my-skills/{name}", frm)
         return _skill_result(h, st, name, p, frm)
-    # bare: framework (reserved), overlay, this stack, its requires, then any installed stack that exports it
-    levels = [[h.psai], [h.overlay]]
+    # bare: framework (reserved), the overlay's my-skills, this stack (my-skills, then its skills.yaml packs), its
+    # requires, then any installed stack that exports it. The overlay's packs count only for its own refs (or with no
+    # --from), so a stack that pins a skill gets its own copy (ADR 0011, 9.2).
     me = h.get(frm) if frm else None
-    if me is not None and me.name not in RESERVED:
-        levels.append([me])
+    own = me is None or me.name == OVERLAY
+    levels = [([h.psai], True), ([h.overlay], own)]
+    if not own and me.name not in RESERVED:
+        levels.append(([me], True))
         req = [h.get(r.get("name")) for r in (me.meta.get("requires") or []) if isinstance(r, dict)]
-        levels.append([s for s in req if s is not None])
-    levels.append([s for s in h.stacks if s is not me])
-    for i, level in enumerate(levels):
+        levels.append(([s for s in req if s is not None], True))
+    levels.append(([s for s in h.stacks if s is not me], True))
+    for i, (level, packs) in enumerate(levels):
         hits = []
         for st in level:
-            p = _skill_in(h, st, name)
+            p = _skill_in(h, st, name, packs)
             if p and (i < len(levels) - 1 or exported(st, f"my-skills/{name}") or not frm):
                 hits.append((st, p))
         if len(hits) == 1:

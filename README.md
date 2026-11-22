@@ -25,6 +25,8 @@ psai stack add ~/src/my-stack --dev       # link your working clone instead of a
 psai stack list | update [<name>] | remove <name> | diff <name> [<path>]
 psai stack sync                           # a new machine: install everything your overlay's stacks.yaml lists
 ```
+Skills from several stacks share the tools' flat skill folders. psai's own names are reserved; for any other name, the tools see your overlay's copy, else the higher-priority stack's (`psai stack list --skills` shows which). A role always gets its own stack's copy, because its brief gives the SKILL.md path. Stack authors: prefix your skill names (`acme-changelog`); `psai stack check` warns otherwise.
+
 To change one file of a stack, override it in your overlay instead of forking the stack: `psai stack override acme:roles/reviewer.md` copies it to `~/.psai/overlay/overrides/acme/roles/reviewer.md` for you to edit; `psai stack update` tells you when the original changes, and `psai stack check acme` validates the stack with your overrides in place. Adding a stack never runs its code. A release is a `vX.Y.Z` tag; a branch is never pinned. A stack's `requires:` are installed with it, one version each; a conflict is refused.
 
 `install.sh` also links the `psai` command into `~/.local/bin`: `psai status`, `psai doctor`, `psai sync`, `psai retro`, `psai update`, `psai adopt <skill>`, `psai check`, `psai context`, `psai graph`, `psai simulate`, `psai resolve`, `psai route`, `psai node`, `psai trace`, `psai check-diff`, `psai install`.

@@ -112,6 +112,35 @@ python3 -c "import yaml; p='$w'; wf=yaml.safe_load(open(p)); wf['nodes']['report
 check "check fails on a broken override" bash -c "$(declare -f ps); T='$T' h='$h' ROOT='$ROOT'; ! ps stack check example-old"
 rm -rf "$H/overlay/overrides/example-old/workflows"
 
+echo "L1 skills across stacks: who the tools see, each role's own copy, reserved names, caches, adopt --to"
+relink() { HOME="$h" bash "$ROOT/install.sh" --relink > /dev/null 2>&1; }
+mks() { mkdir -p "$1"; printf -- '---\nname: %s\ndescription: "%s. Use when testing."\n---\n%s\n' "$(basename "$1")" "${2:-x}" "${2:-x}" > "$1/SKILL.md"; }
+check "a name several stacks ship: the higher-priority (then earlier) stack's copy is linked" test "$(readlink "$h/.claude/skills/change-notes")" = "$H/stacks/example/my-skills/change-notes"
+mks "$H/overlay/my-skills/change-notes" mine; relink
+check "the overlay's copy wins the bare name" test "$(readlink "$h/.claude/skills/change-notes")" = "$H/overlay/my-skills/change-notes"
+rm -rf "$H/overlay/my-skills/change-notes"; printf 'priority: {other: 90}\n' >> "$H/overlay/stack.yaml"; relink
+check "the overlay's priority: decides between stacks" test "$(readlink "$h/.claude/skills/change-notes")" = "$H/stacks/other/my-skills/change-notes"
+check "stack list --skills says which copy the tools see and which aren't linked" bash -c "$(declare -f ps); T='$T' h='$h' ROOT='$ROOT'; ps stack list --skills --json | python3 -c \"import json,sys; r={x['name']:x for x in json.load(sys.stdin)}['change-notes']; sys.exit(0 if r['tools_see']=='other' and 'example' in r['hidden'] else 1)\""
+sed -i '/^priority: {other: 90}$/d' "$H/overlay/stack.yaml"; relink
+check "a role gets its own stack's copy (other)" bash -c "$(declare -f ps); T='$T' h='$h' ROOT='$ROOT'; ps node other:triage sort | grep -q 'Your skills: change-notes (.*$H/stacks/other/my-skills/change-notes/SKILL.md)'"
+check "a role gets its own stack's copy (example)" bash -c "$(declare -f ps); T='$T' h='$h' ROOT='$ROOT'; ps node example:example do | grep -q 'Your skills: change-notes (.*$H/stacks/example/my-skills/change-notes/SKILL.md)'"
+check "stack check warns about unprefixed skill names" bash -c "$(declare -f ps); T='$T' h='$h' ROOT='$ROOT'; ps stack check other | grep -q 'warn other: my-skills/change-notes: prefix your skill names (other-change-notes)'"
+mks "$wk/my-skills/work" "an impostor"; relink
+check "a framework name is reserved: the tools keep psai's, and stack check fails" bash -c "$(declare -f ps); T='$T' h='$h' ROOT='$ROOT'; test \"\$(readlink '$h/.claude/skills/work')\" = '$H/framework/skills/work' && ! ps stack check mine-dev"
+rm -rf "$wk/my-skills/work"
+pkr="$T/src/pk"; mks "$pkr/pk" one; (cd "$pkr" && git init -q -b main && git add -A && git commit -qm one && git tag v1)
+mks "$pkr/pk" two; (cd "$pkr" && git commit -qam two && git tag v2)
+printf 'skills:\n  - {name: pk, source: "%s", path: pk, ref: v1}\n' "$pkr" > "$H/overlay/skills.yaml"
+printf 'skills:\n  - {name: pk, source: "%s", path: pk, ref: v2}\n' "$pkr" > "$wk/skills.yaml"
+sed -i 's/required: \[change-notes\]/required: [change-notes, pk]/' "$wk/roles/doer.md"; relink
+check "the same skill pinned by two stacks at two refs is fetched twice" bash -c "test \"\$(git -C '$H/state/skills-cache/nostack/pk' rev-parse HEAD)\" = \"\$(git -C '$pkr' rev-parse v1)\" && test \"\$(git -C '$H/state/skills-cache/mine-dev/pk' rev-parse HEAD)\" = \"\$(git -C '$pkr' rev-parse v2)\""
+check "the tools see the overlay's pin; the stack's role gets its own" bash -c "$(declare -f ps); T='$T' h='$h' ROOT='$ROOT'; test \"\$(readlink '$h/.claude/skills/pk')\" = '$H/state/skills-cache/nostack/pk/pk' && ps node mine-dev:example do | grep -q 'pk (use when testing; $H/state/skills-cache/mine-dev/pk/pk/SKILL.md)'"
+mks "$h/.claude/skills/own-x" "an unmanaged skill"
+check "adopt --to refuses a pinned stack" bash -c "$(declare -f ps); T='$T' h='$h' ROOT='$ROOT'; ! ps adopt own-x --to example && test -d '$h/.claude/skills/own-x' -a ! -L '$h/.claude/skills/own-x'"
+ps adopt own-x --to mine-dev > /dev/null 2>&1
+check "adopt --to a dev stack moves it into that stack's my-skills/ and links it" bash -c "test -f '$wk/my-skills/own-x/SKILL.md' && test \"\$(readlink '$h/.claude/skills/own-x')\" = '$H/stacks/mine-dev/my-skills/own-x'"
+check "the registry has a stack column" bash -c "cd '$T' && HOME='$h' python3 '$ROOT/scripts/harness.py' skills --root '$H' | grep -E '^own-x +mine-dev '"
+
 echo "L1 psai stack remove, sync"
 check "remove refuses a stack another one requires" bash -c "$(declare -f ps); T='$T' h='$h' ROOT='$ROOT'; ! ps stack remove example"
 mkdir -p "$H/overlay/overrides/other/guides"; echo "# mine" > "$H/overlay/overrides/other/guides/private.md"

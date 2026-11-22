@@ -206,9 +206,19 @@ class Stack:
         return f"Stack({self.name}, {self.path}, {self.mode})"
 
 
+def bundle_home():
+    """The bundle this framework runs from (`psai build --standalone`: framework/ next to bundle.yaml), or None."""
+    parent = os.path.dirname(FRAMEWORK)
+    return parent if os.path.basename(FRAMEWORK) == "framework" and os.path.exists(os.path.join(parent, "bundle.yaml")) else None
+
+
+def default_root():
+    return os.environ.get("PSAI_HOME") or bundle_home() or os.path.expanduser("~/.psai")
+
+
 class Home:
     def __init__(self, root=None):
-        self.root = os.path.abspath(root or os.environ.get("PSAI_HOME") or os.path.expanduser("~/.psai"))
+        self.root = os.path.abspath(root or default_root())
         if os.path.basename(self.root) == "overlay" and os.path.isdir(os.path.join(os.path.dirname(self.root), "framework")):
             self.root = os.path.dirname(self.root)  # given the overlay: its home
         self.compat = not os.path.isdir(os.path.join(self.root, "framework"))
@@ -230,15 +240,28 @@ class Home:
             p = os.path.join(self.root, "stacks", n)
             self.stacks.append(Stack(n, p, e.get("mode", "pinned"), entry=e, order=i))
 
+    @property
+    def bundle(self):
+        """bundle.yaml of a standalone build (ADR 0011, section 13), else {}."""
+        try:
+            with open(os.path.join(self.root, "bundle.yaml")) as f:
+                return yaml.safe_load(f) or {}
+        except (OSError, yaml.YAMLError):
+            return {}
+
     def entries(self):
-        """overlay/stacks.yaml's `stacks:` list (empty in compat mode)."""
+        """overlay/stacks.yaml's `stacks:` list (empty in compat mode); a bundle's stack is always there."""
         if self.compat:
             return []
+        out = []
         p = os.path.join(self.overlay_path, "stacks.yaml")
-        if not os.path.exists(p):
-            return []
-        with open(p) as f:
-            return (yaml.safe_load(f) or {}).get("stacks") or []
+        if os.path.exists(p):
+            with open(p) as f:
+                out = (yaml.safe_load(f) or {}).get("stacks") or []
+        b = self.bundle.get("stack")
+        if b and not any(e.get("name") == b for e in out):
+            out.insert(0, {"name": b, "mode": "bundled", "version": str(self.bundle.get("version"))})
+        return out
 
     def get(self, name):
         if name == OVERLAY:

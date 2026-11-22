@@ -14,6 +14,9 @@ Then ask any agent to set up a workflow: the `customize-harness` skill interview
 
 `psai --help` lists every command: `status`, `doctor`, `stack`, `new-stack`, `check`, `eval`, `sync`, `retro`, `update`, `adopt`, `resolve`, `route`, `node`, `setup models`, ...
 
+## Standalone packages
+`psai build --standalone [<stack>]` packages one stack with a pinned copy of the framework for people who don't install psai: `dist/<stack>/claude/` is a Claude Code plugin (its hooks inject the nudge, its skills are the framework's and the stack's), with a `marketplace.json` next to it (`claude plugin marketplace add <dist/stack>`). The bundle is a psai home of its own: stack management is disabled there and the retro's suggestions go to the stack's author. It needs python3 and PyYAML. With `build: {commit_dist: true}` in stack.yaml, commit `dist/` (drop it from `.gitignore`); the template's CI then fails when it's stale (`psai build --standalone --check`).
+
 ## Add stacks
 A stack is a git repo of workflows, roles, steps, guides, templates and skills with a `stack.yaml` (ADR 0011). Install as many as you like; every name is namespaced (`stack:workflow`), and your overlay `nostack` always wins:
 ```sh

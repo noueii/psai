@@ -16,3 +16,8 @@ jobs:
           python3 "$RUNNER_TEMP/psai/scripts/stacks.py" overlay --home "$RUNNER_TEMP/home"
       - name: psai check .
         run: PSAI_HOME="$RUNNER_TEMP/home" python3 "$RUNNER_TEMP/psai/scripts/psai.py" check .
+      - name: Standalone packages are fresh (only with build.commit_dist in stack.yaml)
+        run: |
+          if python3 -c "import sys,yaml; sys.exit(0 if (yaml.safe_load(open('stack.yaml')).get('build') or {}).get('commit_dist') else 1)"; then
+            PSAI_HOME="$RUNNER_TEMP/home" python3 "$RUNNER_TEMP/psai/scripts/psai.py" build --standalone . --check
+          fi

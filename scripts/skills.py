@@ -489,7 +489,8 @@ def adopt(root, name, home=None, dry=False, ref=None, to=None):
 
 # ---------- CLI ----------
 def _default_root():
-    return os.environ.get("PSAI_HOME") or os.path.expanduser("~/.psai")
+    import resolve  # noqa: PLC0415
+    return resolve.default_root()
 
 
 def main(argv):

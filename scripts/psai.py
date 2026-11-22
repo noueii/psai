@@ -14,6 +14,7 @@
   psai check [<stack>|<path>] [--quick]   L0 + L2 for one stack (with your overrides), or every installed stack;
                                           psai check --framework [args] runs psai's own tests (scripts/check.sh)
   psai new-stack <name> [--dir D]         start a stack from template/stack (a git repo), added as a dev stack
+  psai build --standalone [<stack>] [--target claude] [--out D] [--check]   native packages, no psai install needed
   psai eval <stack|path> [scenario...] [--tool T] [--runs N]   the stack's AI evals in a temp home
   psai stack add|remove|update|list|sync|diff ...   install and manage stacks (scripts/stacks.py)
   psai resolve model <stack>:<role> [--tool T]   the role's model for a tool (scripts/models.py)
@@ -225,6 +226,9 @@ def main(argv):
         except stacks.StackError as e:
             print(f"psai new-stack: {e}", file=sys.stderr)
             return 1
+    if cmd == "build":
+        import build  # noqa: PLC0415
+        return build.main(rest)
     if cmd == "eval":
         return run(["bash", os.path.join(REPO, "evals", "run.sh"), "--stack", *rest])
     if cmd in ("context", "role-context"):

@@ -289,7 +289,7 @@ done < <("$ROOT/scripts/test-targets.sh" 2>/dev/null)
 echo "L1 psai build --standalone (scripts/test-build.sh; no network, no AI)"
 while IFS= read -r line; do
   case "$line" in "  ok   "*) pass "${line#  ok   }" ;; "  FAIL "*) fail "${line#  FAIL }" ;; "  skip "*) echo "$line" ;; esac
-done < <("$ROOT/scripts/test-build.sh" 2>/dev/null)
+done < <(PSAI_DISCOVER="$DISCOVER" "$ROOT/scripts/test-build.sh" 2>/dev/null)
 
 echo "L1 uninstall"
 run "$h" --uninstall --dry-run > /dev/null 2>&1

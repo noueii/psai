@@ -81,6 +81,37 @@ check "diff shows the change since the pin" grep -q 'guides/example-rules.md' "$
 (cd "$wk" && echo "- dev change" >> guides/example-rules.md && git commit -qam dev)
 check "update leaves a dev stack without upstream alone" bash -c "$(declare -f ps); T='$T' h='$h' ROOT='$ROOT'; ps stack update mine-dev | grep -q 'mine-dev: dev'"
 
+echo "L1 overrides: .base.yaml, drift on update, diff, check with overrides in place"
+ps stack update example-old --to v1.0.0 > /dev/null 2>&1
+o="$(ps stack override example-old:guides/example-rules.md)"
+check "override copies the file into overrides/<stack>/ and resolve finds it" bash -c "test '$o' = '$H/overlay/overrides/example-old/guides/example-rules.md' && test -f '$o' && test \"\$(cd '$T' && HOME='$h' python3 '$ROOT/scripts/psai.py' resolve guide example-old:example-rules)\" = '$o'"
+check "override records the stack's commit and the original's hash in .base.yaml" python3 -c "
+import yaml; b = yaml.safe_load(open('$H/overlay/overrides/example-old/.base.yaml'))
+f = b['files']['guides/example-rules.md']; assert f['commit'] == '$(git -C "$ex" rev-parse v1.0.0^{commit})' and len(f['sha256']) == 64"
+echo "- my own rule" >> "$o"
+check "override again keeps your edits" bash -c "$(declare -f ps); T='$T' h='$h' ROOT='$ROOT'; ps stack override example-old:guides/example-rules.md >/dev/null && grep -q 'my own rule' '$o'"
+check "knowledge, stack.yaml and the framework can't be overridden" bash -c "$(declare -f ps); T='$T' h='$h' ROOT='$ROOT'; ! ps stack override example-old:knowledge/roles/doer/INDEX.md && ! ps stack override example-old:stack.yaml && ! ps stack override psai:skills/work/SKILL.md"
+ps stack update example-old > "$T/upd2.out" 2>&1
+check "update reports an original that changed under your override" grep -q 'example-old:guides/example-rules.md changed upstream since you overrode it; diff with `psai stack diff example-old guides/example-rules.md`' "$T/upd2.out"
+check "update keeps the override" grep -q 'my own rule' "$o"
+check "list counts overrides and warns about changed originals" bash -c "$(declare -f ps); T='$T' h='$h' ROOT='$ROOT'; ps stack list --json | python3 -c \"import json,sys; r={x['name']:x for x in json.load(sys.stdin)}['example-old']; sys.exit(0 if r['overrides']==1 and any('changed upstream' in w for w in r['warnings']) else 1)\""
+check "diff <stack> <path> shows the override against its original" bash -c "$(declare -f ps); T='$T' h='$h' ROOT='$ROOT'; d=\"\$(ps stack diff example-old guides/example-rules.md)\"; grep -q '^-- a 1.1 rule' <<< \"\$d\" && grep -q '^+- my own rule' <<< \"\$d\""
+check "check passes with a valid override in place" bash -c "$(declare -f ps); T='$T' h='$h' ROOT='$ROOT'; ps stack check example-old | grep -q 'ok   example-old: content and refs (1 override(s) in place)'"
+w="$(ps stack override example-old:workflows/example.yaml)"
+python3 - "$w" <<'PY'
+import sys, yaml
+p = sys.argv[1]; wf = yaml.safe_load(open(p))
+wf["nodes"]["check"]["next"] = [{"when": "changes needed", "to": "do"}, {"when": "done", "to": "report"}]
+del wf["nodes"]["approve"]
+yaml.safe_dump(wf, open(p, "w"), sort_keys=False)
+PY
+check "check runs the stack's cases against the overridden workflow (they fail here)" bash -c "$(declare -f ps); T='$T' h='$h' ROOT='$ROOT'; ! ps stack check example-old"
+printf -- '- name: straight through, no approval\n  path: [do, check, report, ready]\n- name: blocked escalates\n  take: { do: [blocked] }\n  path: [do, escalate]\n' > "$(dirname "$w")/example.cases.yaml"
+check "the overlay's own cases next to the override are used instead" bash -c "$(declare -f ps); T='$T' h='$h' ROOT='$ROOT'; ps stack check example-old | grep -q 'simulate: 4/4 cases passed'"
+python3 -c "import yaml; p='$w'; wf=yaml.safe_load(open(p)); wf['nodes']['report']['next']=[{'to': 'nowhere'}]; yaml.safe_dump(wf, open(p,'w'), sort_keys=False)"
+check "check fails on a broken override" bash -c "$(declare -f ps); T='$T' h='$h' ROOT='$ROOT'; ! ps stack check example-old"
+rm -rf "$H/overlay/overrides/example-old/workflows"
+
 echo "L1 psai stack remove, sync"
 check "remove refuses a stack another one requires" bash -c "$(declare -f ps); T='$T' h='$h' ROOT='$ROOT'; ! ps stack remove example"
 mkdir -p "$H/overlay/overrides/other/guides"; echo "# mine" > "$H/overlay/overrides/other/guides/private.md"

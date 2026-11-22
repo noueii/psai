@@ -32,7 +32,7 @@ Ask the owner ONE question per message, with the fixed block, kind `question`, n
 ## Add or change one piece
 1. Ask what should change and why, if that isn't clear yet.
 2. Ask the scope: everywhere, or this workflow only. A rule for one repo only belongs in that repo's own AGENTS.md or docs, not in psai: offer to write it there instead.
-3. Pick the place and format from LAYOUT.md.
+3. Pick the place and format from LAYOUT.md. To change a file of an installed stack (`stack:path`), never edit the stack: run `psai stack override <stack>:<path> --in S`, which copies it to `S/overrides/<stack>/<path>`, and edit that copy. It wins by name, and `psai stack update` reports when the original changes. Validate it with `psai stack check <stack>`.
 
 ## Skills for a role or step
 Name them in the file's frontmatter, `skills: {required: [...], optional: [...]}`. For each one:

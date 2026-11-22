@@ -35,6 +35,7 @@ Folder READMEs (`<folder>/README.md`) describe each folder and are always allowe
 `~/.psai` (`$PSAI_HOME` moves it) is a folder that install.sh sets up:
 - `framework/`: a link to the psai clone install.sh ran from;
 - `overlay/`: your stack `nostack`, a git repo created on install. It holds `stack.yaml`, `stacks.yaml` (the installed stacks), and the paths marked **you** above: your own content, `instructions/owner.md`, `my-skills/`, `skills.yaml`, knowledge and every inbox;
+- `overlay/overrides/<stack>/<path>`: your replacement for one installed stack's file (`psai stack override <stack>:<path>`), found by name instead of the original; `.base.yaml` there records what it replaced, so `psai stack update` reports an original that changed. Cases next to an overridden workflow are your own. Knowledge and a stack's `stack.yaml` are never overridden;
 - `stacks/<name>/`: each installed stack;
 - `state/`: this machine's local state (`$PSAI_STATE` moves it): the session ledger, the stage worktree where changes wait for the retro's or sync's PR, retro reports, the install and migration records, the drift baseline, and `skills-cache/<stack>/` with the fetched `skills.yaml` entries. It is never shared.
 

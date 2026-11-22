@@ -291,6 +291,11 @@ while IFS= read -r line; do
   case "$line" in "  ok   "*) pass "${line#  ok   }" ;; "  FAIL "*) fail "${line#  FAIL }" ;; "  skip "*) echo "$line" ;; esac
 done < <(PSAI_DISCOVER="$DISCOVER" "$ROOT/scripts/test-build.sh" 2>/dev/null)
 
+echo "L1 psai publish (scripts/test-publish.sh; a local bare remote, a fake gh)"
+while IFS= read -r line; do
+  case "$line" in "  ok   "*) pass "${line#  ok   }" ;; "  FAIL "*) fail "${line#  FAIL }" ;; esac
+done < <("$ROOT/scripts/test-publish.sh" 2>/dev/null)
+
 echo "L1 uninstall"
 run "$h" --uninstall --dry-run > /dev/null 2>&1
 check "uninstall dry-run changes nothing" test "$after" = "$(snap "$h")"

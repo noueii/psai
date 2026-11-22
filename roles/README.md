@@ -10,6 +10,7 @@ read: [guides/example-rules.md]
 skills:                    # optional; by name. The step's skills add to the role's.
   required: [change-notes] # missing -> work escalates, offering to install it
   optional: []             # missing -> noted in the final report
+model: balanced            # optional: fast | balanced | strong, or {claude: opus, pi: <id>, ...} (psai resolve model)
 ---
 # Role: checker
 Workflow, rules, what to return, and where its knowledge is.

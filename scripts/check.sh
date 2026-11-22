@@ -190,6 +190,11 @@ while IFS= read -r line; do
   case "$line" in "  ok   "*) pass "${line#  ok   }" ;; "  FAIL "*) fail "${line#  FAIL }" ;; esac
 done < <("$ROOT/scripts/test-routing.sh" 2>/dev/null)
 
+echo "L0 model per role (scripts/test-models.sh: sources in order, tiers per tool, validation, psai node)"
+while IFS= read -r line; do
+  case "$line" in "  ok   "*) pass "${line#  ok   }" ;; "  FAIL "*) fail "${line#  FAIL }" ;; esac
+done < <("$ROOT/scripts/test-models.sh" 2>/dev/null)
+
 echo "L0 psai resolve and stack.yaml (scripts/test-resolve.sh; fixture stacks in a temp PSAI_HOME)"
 while IFS= read -r line; do
   case "$line" in "  ok   "*) pass "${line#  ok   }" ;; "  FAIL "*) fail "${line#  FAIL }" ;; esac

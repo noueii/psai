@@ -1,0 +1,16 @@
+name: role-model
+level: L3
+about: "A role with a model tier (the checker, fast) is delegated with that tier's model (Claude Code: haiku)."
+content: [harness-content, model-tier]
+fixture: textkit
+task: Add a docstring to the slugify function in textkit/text.py saying what it returns.
+owner:
+  review: Approved.
+  max_turns: 6
+expect:
+  path_includes: [do, check, approve, report, ready]
+  escalations: { max: 0 }
+  roles_checked: [doer, checker]
+  role_model: { checker: haiku }
+  checks: python3 -m unittest -q
+  no_push: true

@@ -1,0 +1,8 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "__NAME__",
+  "version": "0.1.0",
+  "description": "__DESCRIPTION__ (a psai stack: needs psai installed)",
+  "author": { "name": "__AUTHOR__" },
+  "repository": "https://github.com/__REPO__"
+}

@@ -1,0 +1,8 @@
+{
+  "name": "__NAME__",
+  "version": "0.1.0",
+  "private": true,
+  "description": "__DESCRIPTION__ (a psai stack: needs psai installed)",
+  "keywords": ["pi-package", "omp-plugin", "psai-stack"],
+  "pi": { "skills": ["./skills"] }
+}

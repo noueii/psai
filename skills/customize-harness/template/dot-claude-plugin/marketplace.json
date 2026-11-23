@@ -1,0 +1,6 @@
+{
+  "name": "__NAME__",
+  "owner": { "name": "__AUTHOR__" },
+  "description": "__DESCRIPTION__",
+  "plugins": [{ "name": "__NAME__", "source": "./", "description": "__DESCRIPTION__ (a psai stack)" }]
+}

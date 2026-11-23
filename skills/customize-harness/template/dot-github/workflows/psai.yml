@@ -1,0 +1,13 @@
+# psai's maintainer checks on this stack: skill frontmatter, manifests, layout, workflow refs and graphs, simulator
+# cases. They run from a checkout of psai; nothing is installed. Pin `ref` to a psai tag for repeatable runs.
+name: psai
+on: [push, pull_request]
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with: { repository: noueii/psai, ref: main, path: .psai-checks }
+      - run: pip install pyyaml
+      - run: .psai-checks/scripts/check.sh .

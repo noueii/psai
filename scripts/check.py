@@ -1,14 +1,16 @@
 #!/usr/bin/env python3
 """Maintainer checks for a skills repo: psai itself, or a stack (the same layout). Never shipped to users.
 
-Usage: check.py [<repo>] [--upstream]
+Usage: check.py [<repo>] [--upstream] [--with <repo> ...]
   <repo>      the repo to check (default: this psai clone)
+  --with      another repo whose skills `skill:path` refs may name (e.g. a stack this one builds on)
   --upstream  psai itself: also fail if it ships content (a workflow, a rules or shared skill, knowledge/)
 A stack's skills must all start with its name (`<stack>-`, or `workflow-<stack>-` for a workflow).
 
 Checks: every SKILL.md's frontmatter (the closed Agent Skills field set, name == folder, a quoted description with
 "Use when", at most 1024 characters, never disable-model-invocation); skills/ is flat; the manifests parse and
-agree on name and version; every folder outside skills/ has a README.md.
+agree on name and version; every folder outside skills/ has a README.md; every workflow skill's refs, graph rules
+(reachable, can end, loops limited) and simulator cases (evals/cases/<workflow skill>.yaml).
 Needs python3 with PyYAML.
 """
 import json
@@ -17,6 +19,9 @@ import re
 import sys
 
 import yaml
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import workflows  # noqa: E402
 
 SKILL_FIELDS = {"name", "description", "license", "allowed-tools", "metadata", "compatibility"}
 SKIP_DIRS = {".git", "node_modules", "__pycache__", ".claude-plugin", ".github"}
@@ -150,6 +155,24 @@ def check_names(names, stack, r):
     r.check(not bad, f"every skill starts with {stack}- or workflow-{stack}-", ", ".join(bad))
 
 
+def check_workflows(repo, extra, r):
+    names = [n for n in workflows.skills_in([repo]) if n.startswith("workflow-")]
+    if not names:
+        return
+    print("workflows")
+    skills = workflows.skills_in([repo] + extra)
+    refs = workflows.Refs(skills)
+    for n in names:
+        errs = workflows.validate(skills[n], refs, skills)
+        r.check(not errs, f"{n}: refs resolve, every node reachable and able to end, every loop limited",
+                "; ".join(errs))
+        if not errs:
+            for case, ok, detail in workflows.simulate(repo, skills[n]):
+                r.check(ok, f"simulate {case}", detail)
+    if refs.external:
+        print(f"  note not checked (skills outside this repo; add --with <repo>): {', '.join(sorted(refs.external))}")
+
+
 def check_readmes(repo, r):
     print("structure")
     missing = []
@@ -177,11 +200,19 @@ def check_upstream(repo, names, r):
 
 def main(argv):
     here = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
-    args = [a for a in argv if not a.startswith("--")]
+    args, extra, i = [], [], 0
+    while i < len(argv):
+        if argv[i] == "--with":
+            extra.append(os.path.realpath(argv[i + 1]))
+            i += 1
+        elif not argv[i].startswith("--"):
+            args.append(argv[i])
+        i += 1
     repo = os.path.realpath(args[0] if args else here)
     r = Report()
     names = check_skills(repo, r)
     stack = check_manifests(repo, r)
+    check_workflows(repo, extra, r)
     check_readmes(repo, r)
     if "--upstream" in argv:
         r.check(names, "skills/ holds at least one skill")

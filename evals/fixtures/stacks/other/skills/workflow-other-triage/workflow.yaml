@@ -1,0 +1,13 @@
+# Test content only: sort a note, then hand the work to example's workflow.
+start: sort
+nodes:
+  sort:
+    step: steps/sort.md
+    role: roles/sorter.md
+    next:
+      - { when: needs a change, to: change }
+      - { to: ready }
+  change:
+    handoff: workflow-example-change
+  ready:
+    terminal: true

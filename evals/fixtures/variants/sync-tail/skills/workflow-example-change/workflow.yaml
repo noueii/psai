@@ -1,0 +1,46 @@
+# The example workflow with a retro -> sync tail (overlay on the example test stack). Test content only.
+
+start: do
+defaults:
+  max: 2                # automatic loops back: two tries on the same problem
+  on_exhaust: escalate
+
+nodes:
+  do:
+    step: steps/do.md
+    role: roles/doer.md
+    next:
+      - { when: blocked, to: escalate }
+      - { to: check }
+
+  check:
+    step: steps/check.md
+    role: example-shared:roles/checker.md
+    next:
+      - { when: changes needed, to: do }
+      - { when: done, to: approve }
+
+  approve:
+    step: steps/approve.md
+    human: true         # loops a human drives have no limit
+    next:
+      - { when: changes requested, to: do }
+      - { when: approved, to: report }
+
+  report:
+    step: steps/report.md
+    next: [{ to: retro }]
+
+  retro:                # the tail: retro, then sync (customize-harness's retro-sync-tail pattern)
+    skill: retro
+    next: [{ to: sync }]
+
+  sync:
+    skill: sync
+    next: [{ to: ready }]
+
+  escalate:
+    return: caller
+
+  ready:
+    terminal: true

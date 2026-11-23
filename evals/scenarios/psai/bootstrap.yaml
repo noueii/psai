@@ -1,29 +1,30 @@
 name: bootstrap
 level: L4
 about: >-
-  From the vanilla harness, a generic user bootstraps their first workflow with customize-harness, through a short
-  scripted interview. The result must be filed per LAYOUT (user-owned paths only), pass check.sh, route, and then
-  run a fixture task.
-
-strip: [evals/fixtures/stacks]   # build from the interview, not by copying the test content
+  From psai alone (no stack yet), a generic user bootstraps their first workflow with customize-harness: it scaffolds
+  their stack from its template, interviews them, and stages the workflow as skills. The owner merges it; the result
+  passes psai's checks, and a fixture task then runs on it with the stack installed.
+own: none
 fixture: textkit
 phases:
   - name: bootstrap
-    cwd: harness
+    merge: true
     task: >-
-      Set up this harness for me: use the customize-harness skill to bootstrap my first workflow. Call it "change".
+      Set up psai for me: use the customize-harness skill to bootstrap my first workflow. Call it "change".
     owner:
-      max_turns: 20
+      max_turns: 22
       answers:   # first match wins, against the question only
-        - match: "which stack|stack does this|your overlay|nostack|new stack"
-          answer: My overlay (nostack).
+        - match: "name|call (it|the stack)|stack.*(called|named)"
+          answer: Call the stack mine. Keep it local for now, no GitHub repo.
+        - match: "which stack|create|scaffold|new stack|no stack|set up a stack|where.*live"
+          answer: Yes, create my own stack, called mine, local only (no GitHub repo).
         - match: "accept|look good|looks right|proceed|shall i build|ready to build|go ahead|approve this|confirm|propos"
           answer: >-
             Accepted if it has all of this, otherwise add what's missing and show me again: maker (may change
             anything) makes the change -> tester (may change tests only) adds tests from the task and runs them ->
             if tests fail, back to the maker, at most 2 times, then ask me -> I approve -> a summary with the
-            sections Summary / Tests / Open. Stage it; no branch, no PR, no push.
-        - match: "scope|everywhere|this repo|this workflow only"
+            sections Summary / Tests / Open. Stage it; no PR, no push.
+        - match: "scope|everywhere|this repo|this workflow only|every task"
           answer: Everywhere.
         - match: "summary|handover|report|finish|end of a task"
           answer: "End with a short summary with exactly these sections: Summary / Tests / Open."
@@ -33,24 +34,24 @@ phases:
           answer: I approve every change after the tests pass. My approval loop has no limit.
         - match: "escalat|ask me|decide alone|when.*ask|autonom"
           answer: Decide alone, and ask me only when you're blocked or a loop runs out.
+        - match: "model"
+          answer: Use the default model for both roles.
         - match: "check|test|verif|limit|retry|prove"
           answer: The tester's tests and the repo's tests must pass; on failure back to the maker, at most 2 times.
       default: >-
         Keep it small: maker (anything) makes the change, tester (tests only) adds and runs tests, failures go back to
         the maker at most twice, then ask me; I approve; then a summary (Summary / Tests / Open). Decide the rest.
     expect:
-      files: [workflows/change.yaml, workflows/change.cases.yaml, workflows/ROUTING.yaml, roles/maker.md,
-              roles/tester.md, knowledge/roles/maker/INDEX.md, knowledge/roles/tester/INDEX.md]
-      new_files_in: [evals/scenarios]
-      may_change: { maker: anything, tester: tests }
-      routes_to: [change]
-      only_user_paths: true
-      commands: ["psai check ."]
+      own_exists: true
       staged: true
+      workflow_named: change
+      files: ["evals/cases/workflow-*change*.yaml", "evals/scenarios/*.yaml"]
+      may_change: { maker: anything, tester: tests }
+      own_checks: true
+      only_user_paths: true
       escalations: { max: 0 }
       no_push: true
   - name: run-fixture-task
-    cwd: fixture
     task: Add `reverse(text)` to textkit/text.py, returning the text reversed, and export it from textkit.
     owner:
       review: Approved.

@@ -1,0 +1,7 @@
+- name: a note that only needs sorting
+  path: [sort, ready]
+  ends: ready
+- name: a note that asks for a change hands off to example
+  take: { sort: [needs a change] }
+  path: [sort, change]
+  ends: "handoff:workflow-example-change"

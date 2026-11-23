@@ -1,6 +1,6 @@
 name: two-stacks
 level: L3
-about: With two stacks installed, a request that fits the second stack's workflow is routed to it (stack:workflow), not to the first stack's.
+about: With two stacks installed as plugins, a note-sorting request goes to other's workflow (workflow-other-triage), not to example's.
 stacks: { example: stacks/example, other: stacks/other }
 fixture: textkit
 task: "Sort this note into the right list: 'idea: give a short talk about the text helpers at the next team meetup'. It's a note to file, not a change to make."

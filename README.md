@@ -40,7 +40,8 @@ hooks/hooks.json           the plugin's SessionStart hook: prints the nudge
 extensions/psai.ts         the pi and omp extension: appends the nudge
 plugin.json                the Agent Plugins manifest
 package.json               the pi package ("pi"), which omp also reads
-scripts/                   maintainer-only: check.sh, check.py, link-skills.sh
+scripts/                   maintainer-only: check.sh, check.py, workflows.py (refs, graph rules, simulator), link-skills.sh
+.github/workflows/         CI: scripts/check.sh --upstream on every PR
 evals/                     maintainer-only: AI evals and test stacks
 docs/decisions/            ADRs about psai itself
 ```

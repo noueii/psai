@@ -4,6 +4,7 @@
 Usage: check.py [<repo>] [--upstream]
   <repo>      the repo to check (default: this psai clone)
   --upstream  psai itself: also fail if it ships content (a workflow, a rules or shared skill, knowledge/)
+A stack's skills must all start with its name (`<stack>-`, or `workflow-<stack>-` for a workflow).
 
 Checks: every SKILL.md's frontmatter (the closed Agent Skills field set, name == folder, a quoted description with
 "Use when", at most 1024 characters, never disable-model-invocation); skills/ is flat; the manifests parse and
@@ -59,7 +60,6 @@ def skill_dirs(repo):
 def check_skills(repo, r):
     print("skills")
     names = skill_dirs(repo)
-    r.check(names, "skills/ holds at least one skill")
     for d in names:
         p = os.path.join(repo, "skills", d, "SKILL.md")
         try:
@@ -144,6 +144,12 @@ def check_manifests(repo, r):
     return name
 
 
+def check_names(names, stack, r):
+    print("names")
+    bad = [n for n in names if not (n.startswith(f"{stack}-") or n.startswith(f"workflow-{stack}-"))]
+    r.check(not bad, f"every skill starts with {stack}- or workflow-{stack}-", ", ".join(bad))
+
+
 def check_readmes(repo, r):
     print("structure")
     missing = []
@@ -175,10 +181,13 @@ def main(argv):
     repo = os.path.realpath(args[0] if args else here)
     r = Report()
     names = check_skills(repo, r)
-    check_manifests(repo, r)
+    stack = check_manifests(repo, r)
     check_readmes(repo, r)
     if "--upstream" in argv:
+        r.check(names, "skills/ holds at least one skill")
         check_upstream(repo, names, r)
+    elif stack and stack != "psai":
+        check_names(names, stack, r)
     return r.fails
 
 

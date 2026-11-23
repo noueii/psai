@@ -10,9 +10,9 @@ Install psai first (its README), then this stack through the same channel:
 | Tool | Install | Update |
 |---|---|---|
 | Claude Code | `claude plugin marketplace add __REPO__` then `claude plugin install __NAME__@__NAME__` | `claude plugin marketplace update __NAME__ && claude plugin update __NAME__@__NAME__` |
-| pi | `pi install git:github.com/__REPO__` | `pi update --extensions` |
-| omp | `omp plugin install git:github.com/__REPO__` | `omp plugin upgrade` |
-| opencode, any other agent | `npx skills add __REPO__` | `npx skills update` |
+| pi | `pi install https://github.com/__REPO__` | `pi update --extensions` |
+| omp | `omp plugin install https://github.com/__REPO__` | the same command again |
+| opencode, any other agent | `npx skills add __REPO__ -g` | `npx skills update -g` |
 | development | clone, then `bash <customize-harness>/link-skills.sh <clone>` | `git pull` |
 
 ## Change it

@@ -10,7 +10,7 @@ Sync runs only here: at a `sync` node, or when the owner asks. Nothing else upda
 1. **Your stack:** `git -C "$S" fetch -q origin` (skip it when there's no `origin`). When `git -C "$S" status -sb` says behind, `git -C "$S" pull --ff-only` (your uncommitted inbox entries stay). It can't fast-forward: change nothing, and put "sync waiting: needs you" with the reason in the final report. Never merge, rebase or reset yourself.
 2. **psai and the stacks you installed:** update them with the channel each came from, for the tool you run in. Run only the ones that apply:
    - Claude Code plugin: `claude plugin marketplace update <marketplace>` then `claude plugin update <plugin>@<marketplace>`, for psai and each stack's plugin;
-   - pi: `pi update --extensions`; omp: `omp plugin upgrade`;
+   - pi: `pi update --extensions`; omp: `omp plugin install <url>` again for a plugin installed from git (`omp plugin upgrade` covers marketplace plugins);
    - `npx skills`: `npx skills update`;
    - a clone linked with `scripts/link-skills.sh`: `git -C <clone> pull --ff-only`.
 

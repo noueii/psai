@@ -8,7 +8,7 @@ description: "Reviews a finished task: reads the run (trace, inbox entries, esca
 You only look back and stage. Never edit a live repo (except inboxes in your stack), other repos, or GitHub directly. `S` is your stack and `T` its stage (the `work` skill's `your-stack.md`).
 
 1. **Gather:**
-   - the trace: `cat "$(git rev-parse --absolute-git-dir)/psai-trace"` in the task's repo (nodes, check-diff results);
+   - the trace: `cat "${PSAI_TRACE:-$(git rev-parse --absolute-git-dir)/psai-trace}"` in the task's repo (nodes, check-diff results);
    - new inbox entries: `git -C "$S" diff -- knowledge`, plus untracked inboxes (`git -C "$S" status --short knowledge`);
    - what is already staged: `git -C "$T" status --short`, when `T` exists;
    - what the conversation shows: escalations, review comments, owner corrections, retries, slow or costly stretches.

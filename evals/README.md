@@ -1,6 +1,6 @@
 # evals/
 
-Maintainer-only AI evals: they run psai headless in Claude Code, so the owner isn't the test loop. They cost money: run few, and only where behaviour changes. Never shipped.
+**Optional, manual-only dev tooling.** These AI evals run psai headless in Claude Code with a real model. They cost money, need a login, and are never run in CI or required for a PR: psai is verified by the deterministic checks (`scripts/check.sh`) and the install proof (`scripts/prove-tutorial.sh`). Run one by hand only when you want to watch an agent's behaviour. Never shipped.
 - **L3:** scenarios with test stacks from `fixtures/stacks/` loaded (`example`, `other`), or none.
 - **L4:** a generic user bootstraps their own stack and first workflow with `customize-harness`; then a fixture task runs on the result.
 

@@ -1,6 +1,6 @@
 # evals/scenarios/
 
-psai's own scenarios live in [psai/](psai/README.md); a stack keeps its own in its `evals/scenarios/` (`evals/run.sh --stack <repo>`), and `customize-harness` adds one for every new workflow there. Example: [psai/happy-path.yaml](psai/happy-path.yaml). Format:
+psai's own scenarios live in [psai/](psai/README.md); a stack keeps its own in its `evals/scenarios/` (`evals/run.sh --stack <repo>`), and `customize-harness` adds one for every new workflow there. Running them is optional and manual (they use a real model). Example: [psai/happy-path.yaml](psai/happy-path.yaml). Format:
 ```yaml
 name: happy-path
 level: L3                      # L3 (content fixture) or L4 (bootstrap)

@@ -18,4 +18,4 @@ psai is a skills-only pack (docs/decisions/0012-skills-only.md): everything user
 - **Never install into the real HOME while testing:** use a temp HOME, as `scripts/check.sh` does.
 
 ## Before committing
-Run `scripts/check.sh --upstream`. Run `evals/run.sh` after changing `work`, `request-router`, `customize-harness`, `retro`, `sync` or the fixtures, and keep the AI evals small.
+Run `scripts/check.sh --upstream` (CI runs it too). Run `scripts/prove-tutorial.sh` after changing the tutorial, the manifests, the nudge files or the stack template. The AI evals (`evals/run.sh`) are optional and manual-only: never in CI, never required for a PR.

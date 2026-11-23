@@ -1,5 +1,8 @@
 # psai
 
+> **Archived.** psai has been replaced by [noueii/garden](https://github.com/noueii/garden), which builds on what was learned here (the "seeds" standard).
+
+
 A workflow harness made of plain skills, for Claude Code, opencode, pi, omp and any agent that reads Agent Skills. psai gives your agents a request router, a workflow engine (fresh role agents, diff limits checked by script, loop limits, one fixed escalation format, a final report), knowledge capture, retros and sync. It ships no workflows: `customize-harness` builds yours with you, as skills, in your own **stack** (a skills repo you own). No CLI, no runtime, no build step: the repo is the package. **Start here: [the tutorial](docs/guide/tutorial.md)** (build, publish and install a stack) and [the reference](docs/guide/reference/README.md). Design: [docs/decisions/0012-skills-only.md](docs/decisions/0012-skills-only.md).
 
 ## Install

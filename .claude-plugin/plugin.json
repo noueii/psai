@@ -1,0 +1,9 @@
+{
+  "name": "psai",
+  "version": "4.0.0",
+  "description": "A workflow harness made of skills: a request router, a workflow engine with role agents and checked diff limits, customize-harness to build your own workflows as skills, knowledge capture, retros and sync. Ships no workflows.",
+  "author": { "name": "noueii", "url": "https://github.com/noueii" },
+  "homepage": "https://github.com/noueii/psai",
+  "repository": "https://github.com/noueii/psai",
+  "keywords": ["skills", "workflows", "harness", "agents"]
+}

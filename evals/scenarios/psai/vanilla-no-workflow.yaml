@@ -1,9 +1,10 @@
 name: vanilla-no-workflow
 level: L3
 about: >-
-  A repeatable task arrives on the vanilla harness. With no workflows, it must escalate and offer customize-harness,
+  A repeatable task arrives with psai alone (no stack installed, no stack of the owner's). With no workflows, it must escalate and offer customize-harness,
   and change nothing.
 
+own: none
 fixture: textkit
 task: Add a `reverse(text)` helper to textkit.
 owner:

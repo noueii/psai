@@ -1,0 +1,1 @@
+{ "name": "other", "owner": { "name": "psai tests" }, "plugins": [{ "name": "other", "source": "./", "description": "A second neutral test stack: note triage that hands changes to example." }] }

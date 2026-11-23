@@ -1,1 +1,0 @@
-- Ask before deleting anything.

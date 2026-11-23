@@ -1,3 +1,0 @@
-# sorter knowledge
-
-Nothing yet.

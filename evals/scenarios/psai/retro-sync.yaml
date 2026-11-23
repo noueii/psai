@@ -1,10 +1,9 @@
 name: retro-sync
 level: L3
 about: >-
-  The example workflow ends report -> retro -> sync -> ready (the sync-tail overlay). The retro stages and leaves the
-  PR to sync, which finds the machine out of sync only by what was captured and builds exactly ONE local
-  psai/sync- branch carrying the retro report. No psai/retro- branch, nothing pushed.
-stacks: { example: [stacks/example, sync-tail] }
+  The example workflow ends report -> retro -> sync -> ready (variants/sync-tail). The retro stages and leaves the
+  PR to sync, which finishes the stage as ONE local psai/ branch in the owner's stack (no remote). Nothing pushed.
+stacks: { example: [stacks/example, variants/sync-tail] }
 fixture: textkit
 task: Add `reverse(text)` to textkit/text.py, returning the text reversed, and export it from textkit.
 owner:
@@ -17,5 +16,5 @@ expect:
   escalations: { max: 0 }
   checks: python3 -m unittest -q
   retro_findings: true
-  branches: { "psai/sync-": 1, "psai/retro-": 0 }
+  branches: { "psai/": 1 }
   no_push: true

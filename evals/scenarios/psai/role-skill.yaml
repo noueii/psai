@@ -13,7 +13,7 @@ expect:
   path_includes: [do, check, approve, report, ready]
   escalations: { max: 0 }
   roles_checked: [doer, checker]
-  role_used_skill: change-notes
+  role_used_skill: example-change-notes
   work_files: [CHANGES.md]
   checks: python3 -m unittest -q
   no_push: true

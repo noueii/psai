@@ -1,13 +1,17 @@
 #!/usr/bin/env bash
 # Maintainer checks for psai (and, with a path, for a stack). Dev-only: never shipped to users. Never touches the
 # real HOME: every install test runs in a temp HOME.
-# Usage: scripts/check.sh [--upstream] [<stack repo>]
+# Usage: scripts/check.sh [--upstream] [<stack repo> [--with <repo> ...]]
 #   --upstream    psai itself ships no content (run it before every commit to psai)
 #   <stack repo>  check a stack instead of psai (its CI does this)
+#   --with        another stack whose skills the checked stack's `skill:path` refs name
 set -uo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd -P)"
-UPSTREAM=""; TARGET="$ROOT"
-for a in "$@"; do case "$a" in --upstream) UPSTREAM=--upstream ;; *) TARGET="$(cd "$a" && pwd -P)" ;; esac; done
+UPSTREAM=""; TARGET="$ROOT"; WITH=()
+while [ $# -gt 0 ]; do
+  case "$1" in --upstream) UPSTREAM=--upstream ;; --with) WITH+=(--with "$(cd "$2" && pwd -P)"); shift ;; *) TARGET="$(cd "$1" && pwd -P)" ;; esac
+  shift
+done
 fails=0
 pass() { echo "  ok   $*"; }
 fail() { echo "  FAIL $*"; fails=$((fails + 1)); }
@@ -15,7 +19,7 @@ check() { local msg="$1"; shift; if "$@" >/dev/null 2>&1; then pass "$msg"; else
 T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT
 export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t   # temp repos only
 
-python3 "$ROOT/scripts/check.py" "$TARGET" $UPSTREAM || fails=$((fails + 1))
+python3 "$ROOT/scripts/check.py" "$TARGET" $UPSTREAM ${WITH[@]+"${WITH[@]}"} || fails=$((fails + 1))
 
 if [ "$TARGET" = "$ROOT" ]; then
   echo "scripts in skills"
@@ -53,6 +57,53 @@ if [ "$TARGET" = "$ROOT" ]; then
   check "may_change: tests refuses app.py" bash -c "! bash '$ROOT/skills/work/check-diff.sh' '$T/checker.md' '$base'"
   check "may_change: nothing refuses any change" bash -c "! bash '$ROOT/skills/work/check-diff.sh' '$T/reviewer.md' '$base'"
   cd "$ROOT" || exit 1
+fi
+
+if [ "$TARGET" = "$ROOT" ] && [ -d "$ROOT/evals/fixtures/stacks/example" ]; then
+  FX="$ROOT/evals/fixtures"; EX="$FX/stacks/example"
+  echo "test stacks (evals/fixtures)"
+  check "example passes check.py" python3 "$ROOT/scripts/check.py" "$EX"
+  check "other passes check.py, with example's skills" python3 "$ROOT/scripts/check.py" "$FX/stacks/other" --with "$EX"
+  for v in "$FX"/variants/*/; do
+    d="$T/variant-$(basename "$v")"; cp -r "$EX" "$d"; cp -r "$v". "$d/"
+    check "example + variants/$(basename "$v") passes check.py" python3 "$ROOT/scripts/check.py" "$d"
+  done
+  echo "the checks catch broken stacks"
+  bad() { # <label> <sed script for workflow.yaml or a file> [file]
+    local d="$T/bad-$RANDOM"; cp -r "$EX" "$d"
+    sed -i "$2" "$d/skills/workflow-example-change/${3:-workflow.yaml}"
+    check "$1" bash -c "! python3 '$ROOT/scripts/check.py' '$d'"
+  }
+  bad "a ref to a missing file fails" 's|steps/do.md|steps/nope.md|'
+  bad "a shared ref to a missing file fails" 's|example-shared:roles/checker.md|example-shared:roles/nope.md|'
+  bad "an unreachable node fails" 's|{ when: done, to: approve }|{ when: done, to: report }|'
+  bad "an unlimited automatic loop fails" 's|  max: 2 |  max: null |'
+  bad "a path that can't end fails" 's|next: \[{ to: ready }\]|next: [{ to: report }]|'
+  bad "a case whose path differs fails" 's|path: \[do, check, approve, report, ready\]|path: [do, ready]|' ../../evals/cases/workflow-example-change.yaml
+  bad "a SKILL.md field outside the Agent Skills set fails" 's|^name: workflow-example-change|&\nmodel: opus|' SKILL.md
+  bad "a bad may_change fails" 's|may_change: anything|may_change: everything|' roles/doer.md
+  d="$T/bad-name"; cp -r "$EX" "$d"; mv "$d/skills/example-change-notes" "$d/skills/change-notes"; sed -i 's/^name: example-change-notes/name: change-notes/' "$d/skills/change-notes/SKILL.md"
+  check "a skill without the stack's prefix fails" bash -c "! python3 '$ROOT/scripts/check.py' '$d'"
+
+  echo "trace.sh (temp repo, the example workflow)"
+  r="$T/trace-repo"; mkdir -p "$r" && cd "$r" && git init -q && git commit -q --allow-empty -m init
+  W="$EX/skills/workflow-example-change"; trc() { bash "$ROOT/skills/work/trace.sh" "$W" "$1"; }
+  export PSAI_TRACE="$r/.trace"
+  check "a run starts at start" trc do
+  check "moving on from a role node before check-diff is refused" bash -c "! bash '$ROOT/skills/work/trace.sh' '$W' check"
+  echo "check-diff role=doer may_change=anything result=ok files=1" >> "$PSAI_TRACE"
+  check "after check-diff, an edge is allowed" trc check
+  echo "check-diff role=checker may_change=nothing result=ok files=0" >> "$PSAI_TRACE"
+  check "a move that isn't an edge is refused" bash -c "! bash '$ROOT/skills/work/trace.sh' '$W' ready"
+  check "on_exhaust is allowed" trc escalate
+  check "an escalation returns to the asker" trc check
+  echo "check-diff role=checker may_change=nothing result=ok files=0" >> "$PSAI_TRACE"
+  check "and the run goes on" bash -c "bash '$ROOT/skills/work/trace.sh' '$W' approve && bash '$ROOT/skills/work/trace.sh' '$W' report && bash '$ROOT/skills/work/trace.sh' '$W' ready"
+  check "after the terminal node, only start begins a new run" bash -c "! bash '$ROOT/skills/work/trace.sh' '$W' check && bash '$ROOT/skills/work/trace.sh' '$W' do"
+  unset PSAI_TRACE; cd "$ROOT" || exit 1
+
+  echo "graph.py"
+  check "draws the example workflow" bash -c "python3 '$ROOT/skills/customize-harness/graph.py' '$W' | grep -q 'check -.->|\"changes needed (max 2)\"| do'"
 fi
 
 if command -v claude >/dev/null; then

@@ -1,16 +1,19 @@
 #!/usr/bin/env python3
-"""Run eval scenarios headless against a tool, with a scripted fake owner. Called by evals/run.sh.
+"""Run eval scenarios headless in Claude Code, with a scripted fake owner. Called by evals/run.sh.
 
-Each run gets a throwaway directory:
-- harness/   a copy of this framework (it ships no content);
-- home/      the run's psai home (ADR 0011), where PSAI_HOME points: framework/ links harness/, stacks/<name>/ are
-             copies of the scenario's `stacks:` fixtures, overlay/ is `overlay:` (or an empty overlay, a git repo);
-- work/      a copy of the fixture repo, a git repo whose origin is remote.git (a local bare repo);
-- bin/gh     a shim that logs and refuses, so nothing reaches GitHub; bin/psai runs the copy's psai command;
-- trace.log  check-diff.sh's lines (PSAI_TRACE).
+Each run gets a throwaway directory, set up the way a consumer installs psai 4 (ADR 0012):
+- psai/          the shipped part of this repo (skills, manifests, hooks, extensions), loaded with --plugin-dir;
+- stacks/<name>/ copies of the scenario's `stacks:` (test stacks in evals/fixtures/), each loaded with --plugin-dir;
+- own/           the owner's stack, where PSAI_STACK points: scaffolded from customize-harness's template as `mine`
+                 (plus any `own:` fixture folders copied over it), or absent with `own: none`; loaded with
+                 --plugin-dir when it has skills;
+- work/          a copy of the fixture repo, a git repo whose origin is remote.git (a local bare repo);
+- bin/gh         a shim that logs and refuses, so nothing reaches GitHub;
+- trace.log      trace.sh's and check-diff.sh's lines (PSAI_TRACE).
+`strip: [stacks/<name>/<path>]` removes a path from the run's copy (e.g. a skill a role requires).
 
-The real HOME is only read in place by the tool for its own login. Nothing is copied from it and no harness file
-is installed into it.
+The real HOME is only read in place by Claude Code for its own login. Nothing is copied from it and nothing is
+installed into it: the plugins are loaded for the run only (--plugin-dir), with project settings only.
 """
 import argparse
 import json
@@ -27,41 +30,71 @@ import yaml
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 sys.path.insert(0, os.path.join(HERE, "graders"))
+sys.path.insert(0, os.path.join(ROOT, "scripts"))
 import grade  # noqa: E402
 
 BLOCK = re.compile(r"<<<HARNESS\s*\n(.*?)\n\s*>>>", re.S)
-IGNORE = shutil.ignore_patterns(".git", "results", "__pycache__", ".state", ".skills-cache")
+IGNORE = shutil.ignore_patterns(".git", "results", "__pycache__")
+SHIPPED = ("skills", ".claude-plugin", "hooks", "extensions", "plugin.json", "package.json")
+GIT_ENV = dict(GIT_AUTHOR_NAME="eval", GIT_AUTHOR_EMAIL="eval@local", GIT_COMMITTER_NAME="eval",
+               GIT_COMMITTER_EMAIL="eval@local")
 
 
-def sh(cmd, cwd, env=None, check=True):
-    return subprocess.run(cmd, cwd=cwd, env=env, shell=True, check=check, text=True,
+def sh(cmd, cwd, check=True):
+    return subprocess.run(cmd, cwd=cwd, shell=True, check=check, text=True, env=dict(os.environ, **GIT_ENV),
                           stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
 
 
 def git_init(path, msg="fixture"):
-    sh("git init -q -b main && git add -A && git -c user.email=eval@local -c user.name=eval commit -qm "
-       f"'{msg}'", path)
+    sh(f"git init -q -b main && git add -A && git commit -qm '{msg}'", path)
+
+
+def copy_layers(srcs, dest):
+    for i, s in enumerate([srcs] if isinstance(srcs, str) else srcs):
+        shutil.copytree(os.path.join(ROOT, "evals", "fixtures", s), dest, ignore=IGNORE, dirs_exist_ok=i > 0)
+
+
+def scaffold_own(dest, layers):
+    """The owner's stack `mine`, scaffolded the way customize-harness does it, plus fixture layers."""
+    shutil.copytree(os.path.join(ROOT, "skills", "customize-harness", "template"), dest)
+    for f in os.listdir(dest):
+        if f.startswith("dot-"):
+            os.rename(os.path.join(dest, f), os.path.join(dest, "." + f[4:]))
+    for root, _, files in os.walk(dest):
+        for f in files:
+            p = os.path.join(root, f)
+            t = open(p).read()
+            for a, b in (("__NAME__", "mine"), ("__REPO__", "owner/mine"), ("__DESCRIPTION__", "The owner's stack."),
+                         ("__AUTHOR__", "owner")):
+                t = t.replace(a, b)
+            open(p, "w").write(t)
+    if layers:
+        copy_layers(layers, dest)
+    git_init(dest, "mine: new psai stack")
 
 
 def prepare(scn, base):
-    h, w = os.path.join(base, "harness"), os.path.join(base, "work")
-    shutil.copytree(ROOT, h, ignore=IGNORE, symlinks=True)
-    for rel in ("evals/scenarios/psai", "evals/graders"):  # the agent must not see the expected answers
-        shutil.rmtree(os.path.join(h, rel), ignore_errors=True)
-    git_init(h, "harness")
-    home = stacks_home(scn, base, h)
-    for rel in scn.get("strip") or []:  # hide something: stacks/... and overlay/... in the home, else in the copy
-        shutil.rmtree(os.path.join(home if rel.split("/")[0] in ("stacks", "overlay") else h, rel), ignore_errors=True)
-    if any(r.split("/")[0] not in ("stacks", "overlay") for r in scn.get("strip") or []):
-        sh("git add -A && git -c user.email=eval@local -c user.name=eval commit -qm strip", h, check=False)
-    # this machine's state for the copy: installed at HEAD, migrations done (never run against the real HOME), and a
-    # drift baseline of the real HOME (read only), so sync has nothing to update or adopt unless the run creates it
-    sh(f"python3 scripts/sync.py installed --record --root {home} && python3 scripts/sync.py baseline --root {home}", h)
-    mig = {os.path.basename(m): "eval" for m in sorted(os.listdir(os.path.join(h, "migrations"))) if m.endswith(".sh")}
-    with open(os.path.join(home, "state", "migrations.json"), "w") as f:
-        json.dump(mig, f)
-    fx = [os.path.join(d, scn["fixture"]) for d in (scn.get("_fixtures") or []) + [os.path.join(ROOT, "evals", "fixtures")]]
-    shutil.copytree(next((d for d in fx if os.path.isdir(d)), fx[-1]), w, ignore=IGNORE)
+    p = os.path.join(base, "psai")
+    os.makedirs(p)
+    for x in SHIPPED:
+        s = os.path.join(ROOT, x)
+        (shutil.copytree if os.path.isdir(s) else shutil.copy2)(s, os.path.join(p, x))
+    git_init(p, "psai")
+    stacks = []
+    for name, fx in (scn.get("stacks") or {}).items():
+        d = os.path.join(base, "stacks", name)
+        copy_layers(fx, d)
+        git_init(d, name)
+        stacks.append(d)
+    own = os.path.join(base, "own")
+    if scn.get("own") != "none":
+        scaffold_own(own, scn.get("own"))
+    for rel in scn.get("strip") or []:  # hide something from the run, e.g. a stack's skill
+        shutil.rmtree(os.path.join(base, rel), ignore_errors=True)
+        top = os.path.join(base, *rel.split("/")[:2])
+        sh("git add -A && git commit -qm strip", top, check=False)
+    w = os.path.join(base, "work")
+    shutil.copytree(os.path.join(ROOT, "evals", "fixtures", scn["fixture"]), w, ignore=IGNORE)
     git_init(w)
     sh(f"git init -q --bare {base}/remote.git && git remote add origin {base}/remote.git && git push -q origin main", w)
     b = os.path.join(base, "bin")
@@ -69,36 +102,7 @@ def prepare(scn, base):
     with open(os.path.join(b, "gh"), "w") as f:
         f.write(f'#!/bin/sh\necho "gh $*" >> {base}/gh.log\necho "gh is disabled in evals" >&2\nexit 1\n')
     os.chmod(os.path.join(b, "gh"), 0o755)
-    with open(os.path.join(b, "psai"), "w") as f:
-        f.write(f'#!/bin/sh\nexec python3 {h}/scripts/psai.py "$@"\n')
-    os.chmod(os.path.join(b, "psai"), 0o755)
-    return h, w, home
-
-
-def stacks_home(scn, base, h):
-    """A stacks-layout home for the run: framework/ -> the harness copy, the scenario's stacks, an overlay."""
-    home = os.path.join(base, "home")
-    os.makedirs(os.path.join(home, "stacks"))
-    os.symlink(h, os.path.join(home, "framework"))
-    ents = []
-    for name, fx in (scn.get("stacks") or {}).items():  # a fixture folder, a list of them (overlaid in order), or a path
-        dest = os.path.join(home, "stacks", name)
-        for i, f in enumerate([fx] if isinstance(fx, str) else fx):
-            shutil.copytree(os.path.join(ROOT, "evals", "fixtures", f), dest, ignore=IGNORE, dirs_exist_ok=i > 0)
-        ents.append({"name": name, "source": f"fixture:{fx}", "ref": "v0.0.0", "mode": "pinned"})
-    ov = os.path.join(home, "overlay")
-    if scn.get("overlay"):
-        shutil.copytree(os.path.join(ROOT, "evals", "fixtures", scn["overlay"]), ov, ignore=IGNORE)
-    else:
-        sys.path.insert(0, os.path.join(h, "scripts"))
-        import stacks  # noqa: PLC0415
-        stacks.init_overlay(home)
-    with open(os.path.join(ov, "stacks.yaml"), "w") as f:
-        yaml.safe_dump({"stacks": ents}, f, sort_keys=False)
-    if not os.path.isdir(os.path.join(ov, ".git")):
-        git_init(ov, "overlay")
-    os.makedirs(os.path.join(home, "state"), exist_ok=True)
-    return home
+    return p, stacks, own, w
 
 
 def remote_refs(base):
@@ -140,38 +144,19 @@ def owner_answer(owner, block, log):
     return "I can't answer that. Decide yourself, log the decision, and carry on."
 
 
-# ---------- tool adapters ----------
+# ---------- Claude Code ----------
 class Claude:
-    name = "claude"
-
-    def __init__(self, h, cwd, env, model, budget):
-        # The psai plugin (its SessionStart hook injects the nudge), plus a throwaway plugin that exposes the
-        # harness skills the way ~/.claude/skills does in a real install.
-        sp = os.path.join(os.path.dirname(h), "skills-plugin")
-        os.makedirs(os.path.join(sp, ".claude-plugin"), exist_ok=True)
-        with open(os.path.join(sp, ".claude-plugin", "plugin.json"), "w") as f:
-            json.dump({"name": "harness-skills", "version": "0.0.0", "description": "eval-only skills link"}, f)
-        sk = os.path.join(sp, "skills")  # psai's skills and my-skills/, as install.sh links them
-        os.makedirs(sk, exist_ok=True)
-        if env["PSAI_HOME"] != h:  # a stacks-layout home: the framework's, the overlay's and each stack's skills
-            sys.path.insert(0, os.path.join(h, "scripts"))
-            import stacks  # noqa: PLC0415
-            for n, target in stacks.skill_sources(env["PSAI_HOME"]):
-                if not os.path.lexists(os.path.join(sk, n)):  # a later phase reuses the links
-                    os.symlink(target, os.path.join(sk, n))
-        for sub in ("skills", "my-skills") if env["PSAI_HOME"] == h else ():
-            d = os.path.join(h, sub)
-            for n in sorted(os.listdir(d)) if os.path.isdir(d) else []:
-                if os.path.isfile(os.path.join(d, n, "SKILL.md")) and not os.path.lexists(os.path.join(sk, n)):
-                    os.symlink(os.path.join(d, n), os.path.join(sk, n))
-        self.p = subprocess.Popen(
-            ["claude", "-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose",
-             "--plugin-dir", os.path.join(h, "plugins", "claude"), "--plugin-dir", sp,
-             "--setting-sources", "project", "--no-session-persistence", "--strict-mcp-config",
-             "--permission-mode", "bypassPermissions", "--add-dir", h, "--add-dir", env["PSAI_HOME"], "--model", model, "--max-budget-usd", str(budget)],
-            cwd=cwd, env=env, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
+    def __init__(self, plugins, cwd, env, model, budget, base):
+        args = ["claude", "-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose",
+                "--setting-sources", "project", "--no-session-persistence", "--strict-mcp-config",
+                "--permission-mode", "bypassPermissions", "--add-dir", base, "--model", model,
+                "--max-budget-usd", str(budget)]
+        for p in plugins:
+            args += ["--plugin-dir", p]
+        self.p = subprocess.Popen(args, cwd=cwd, env=env, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                                  stderr=subprocess.DEVNULL, text=True)
         self.texts, self.sub_calls, self.agent_calls, self.cost = [], [], [], 0.0
-        self.raw = open(os.path.join(os.path.dirname(h), "stream.jsonl"), "a")
+        self.raw = open(os.path.join(base, "stream.jsonl"), "a")
 
     def turn(self, message):
         self.p.stdin.write(json.dumps({"type": "user", "message": {"role": "user", "content": message}}) + "\n")
@@ -197,9 +182,9 @@ class Claude:
                     self.sub_calls.append(json.dumps({"name": c.get("name"), "input": c.get("input", {})}))
             elif c.get("type") == "text":
                 self.texts.append(c["text"])
-            elif c.get("type") == "tool_use":  # agents often print [harness] lines with echo
+            elif c.get("type") == "tool_use":
                 self.texts.append(json.dumps(c.get("input", {})).replace("\\n", "\n"))
-                if c.get("name") in ("Agent", "Task"):  # role agents started by the main agent (role_model)
+                if c.get("name") in ("Agent", "Task"):
                     self.agent_calls.append(c.get("input", {}))
 
     def _drain(self, result, idle=120):
@@ -236,93 +221,14 @@ class Claude:
             self.p.kill()
 
 
-class Omp:
-    name = "omp"
-
-    def __init__(self, h, cwd, env, model, budget):
-        cfg = os.path.join(os.path.dirname(h), "omp-config.yml")
-        sk = os.path.join(os.path.dirname(h), "omp-skills")  # the framework's, the overlay's and each stack's skills
-        os.makedirs(sk, exist_ok=True)
-        sys.path.insert(0, os.path.join(h, "scripts"))
-        import stacks  # noqa: PLC0415
-        for n, target in stacks.skill_sources(env["PSAI_HOME"]):
-            if not os.path.lexists(os.path.join(sk, n)):
-                os.symlink(target, os.path.join(sk, n))
-        with open(cfg, "w") as f:
-            yaml.safe_dump({"skills": {"customDirectories": [sk], "enableAgentsUser": False,
-                                       "enableClaudeUser": False, "enableCodexUser": False, "enablePiUser": False,
-                                       "enableAgentsProject": False, "enableClaudeProject": False,
-                                       "enablePiProject": False}}, f)
-        args = ["omp", "--mode", "rpc", "--no-session", "--no-title", "--config", cfg,
-                "--extension", os.path.join(h, "plugins", "omp", "psai.ts")]
-        self.p = subprocess.Popen(args, cwd=cwd, env=env, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-                                  stderr=subprocess.DEVNULL, text=True)
-        self.texts, self.cost, self.n = [], 0.0, 0
-        self.raw = open(os.path.join(os.path.dirname(h), "stream.jsonl"), "a")
-
-    def _send(self, obj):
-        self.p.stdin.write(json.dumps(obj) + "\n")
-        self.p.stdin.flush()
-
-    def _wait(self, pred):
-        for line in self.p.stdout:
-            self.raw.write(line)
-            try:
-                d = json.loads(line)
-            except json.JSONDecodeError:
-                continue
-            if d.get("type") == "message_end":
-                m = d.get("message") or {}
-                if m.get("role") == "assistant":
-                    for c in m.get("content", []) or []:
-                        if isinstance(c, dict) and c.get("type") == "text":
-                            self.texts.append(c.get("text", ""))
-                        elif isinstance(c, dict) and c.get("type") not in ("thinking", "redacted_thinking"):
-                            self.texts.append(json.dumps(c))  # tool calls, so graders see what was invoked
-            if pred(d):
-                return d
-        return None
-
-    def turn(self, message):
-        self._send({"type": "prompt", "message": message})
-        if self._wait(lambda d: d.get("type") == "agent_end") is None:
-            return None
-        self.n += 1
-        self._send({"id": f"t{self.n}", "type": "get_last_assistant_text"})
-        r = self._wait(lambda d: d.get("type") == "response" and d.get("id") == f"t{self.n}")
-        self._send({"id": f"s{self.n}", "type": "get_session_stats"})
-        s = self._wait(lambda d: d.get("type") == "response" and d.get("id") == f"s{self.n}")
-        try:
-            self.cost = float(((s or {}).get("data") or {}).get("cost") or (((s or {}).get("data") or {}).get("tokens") or {}).get("cost") or 0)
-        except (TypeError, ValueError):
-            pass
-        data = (r or {}).get("data")
-        return data.get("text", "") if isinstance(data, dict) else (data or "")
-
-    def close(self):
-        try:
-            self.p.stdin.close()
-            self.p.wait(timeout=30)
-        except Exception:
-            self.p.kill()
-
-
-TOOLS = {"claude": Claude, "omp": Omp}
-
-
-def run_phase(tool, phase, h, w, base, model, budget, home=None):
-    cwd = os.path.join(home, "overlay") if phase.get("cwd") == "harness" else w
-    env = dict(os.environ, PSAI_HOME=home or h, PSAI_TRACE=os.path.join(base, "trace.log"), PSAI_EVAL="1",
-               PATH=os.path.join(base, "bin") + os.pathsep + os.environ["PATH"],
-               GIT_AUTHOR_NAME="eval", GIT_AUTHOR_EMAIL="eval@local", GIT_COMMITTER_NAME="eval",
-               GIT_COMMITTER_EMAIL="eval@local")
-    env.pop("PSAI_STATE", None)  # the copy's own .state
+def run_phase(phase, plugins, own, w, base, model, budget):
+    cwd = own if phase.get("cwd") == "own" and os.path.isdir(own) else w
+    env = dict(os.environ, PSAI_STACK=own, PSAI_TRACE=os.path.join(base, "trace.log"),
+               PATH=os.path.join(base, "bin") + os.pathsep + os.environ["PATH"], **GIT_ENV)
     owner = phase.get("owner") or {}
     log = {"reviews": 0, "questions": 0, "escalations": [], "unexpected": [], "turns": 0}
-    agent = TOOLS[tool](h, cwd, env, model, budget)
-    msg = phase["task"]
-    final = ""
-    t0 = time.time()
+    agent = Claude(plugins, cwd, env, model, budget, base)
+    msg, final, t0 = phase["task"], "", time.time()
     try:
         while log["turns"] < owner.get("max_turns", 10):
             log["turns"] += 1
@@ -341,102 +247,74 @@ def run_phase(tool, phase, h, w, base, model, budget, home=None):
         agent.close()
     text = "\n".join(agent.texts)
     log.update(seconds=round(time.time() - t0), cost=round(agent.cost, 4), final=final, text=text,
-               sub_calls=getattr(agent, "sub_calls", None), agent_calls=getattr(agent, "agent_calls", None),
-               path=re.findall(r"\[harness\] node: ([A-Za-z0-9_-]+)", text), cwd=cwd)
+               sub_calls=agent.sub_calls, agent_calls=agent.agent_calls,
+               path=re.findall(r"\[harness\] node: ([A-Za-z0-9_-]+)", text))
     return log
 
 
-def use_staged(h, home=None):
-    """customize-harness stages in the stage worktree; a retro may already have built a psai/ branch from it. Stand in
-    for the owner merging it: put the staged files into the copy (uncommitted) or check out that branch, so grading
-    and later phases see them. In a stacks-layout home, `h` is the overlay. -> what was found: {stage: [files],
-    branches: [psai/...], other: [non-psai branches]}"""
-    import sync  # noqa: PLC0415 (the harness copy's scripts are on sys.path)
-    staged = sync.stage_changes(home or h)
-    brs = sh("git branch --format='%(refname:short)'", h).stdout.split()
-    found = {"stage": sorted(staged), "branches": [b for b in brs if b.startswith("psai/")],
-             "other": [b for b in brs if b != "main" and not b.startswith("psai/")]}
-    for p, src in staged.items():
-        dst = os.path.join(h, p)
-        if src is None:
-            if os.path.lexists(dst):
-                os.remove(dst)
-        else:
-            os.makedirs(os.path.dirname(dst), exist_ok=True)
-            shutil.copyfile(src, dst)
-    if not staged and found["branches"]:
-        sh(f"git checkout -q {found['branches'][-1]}", h, check=False)
-    return found
+def own_state(own):
+    """What the run left in the owner's stack: the stage worktree's changes and the psai/ branches."""
+    if not os.path.isdir(os.path.join(own, ".git")):
+        return {"exists": False, "stage": [], "branches": [], "other": []}
+    stage = os.path.join(own, ".git", "psai-stage")
+    files = []
+    if os.path.isdir(stage):
+        st = sh("git status --porcelain", stage, check=False).stdout.splitlines()
+        cm = sh("git diff --name-only main...HEAD", stage, check=False).stdout.splitlines()
+        files = sorted({ln[3:] for ln in st if ln.strip()} | {ln for ln in cm if ln.strip()})
+    brs = sh("git branch --format='%(refname:short)'", own).stdout.split()
+    return {"exists": True, "stage": files, "branches": [b for b in brs if b.startswith("psai/") and b != "psai/stage"],
+            "stage_branch": "psai/stage" in brs, "other": [b for b in brs if b != "main" and not b.startswith("psai/")]}
 
 
-def for_stack(scn, stack):
-    """`psai eval <stack>`: run a stack's scenario with that stack (and its requires, from this machine's home)
-    installed, and its own fixture repos first."""
-    sys.path.insert(0, os.path.join(ROOT, "scripts"))
-    import resolve  # noqa: PLC0415
-    path = os.path.abspath(stack) if os.path.isdir(stack) else (resolve.home().get(stack) or resolve.home().overlay).path
-    meta = resolve.load_stack(path)
-    st = {meta.get("name", os.path.basename(path)): path}
-    for r in meta.get("requires") or []:
-        dep = resolve.home().get(r.get("name"))
-        if dep is not None:
-            st.setdefault(r["name"], dep.path)
-    scn.setdefault("stacks", st)
-    scn["_fixtures"] = [os.path.join(path, "evals", "fixtures")]
-    return scn
+def merge_staged(own, found):
+    """Stand in for the owner merging the retro's PR, so later phases install what was built."""
+    stage = os.path.join(own, ".git", "psai-stage")
+    if found.get("stage") and os.path.isdir(stage):
+        sh("git add -A && git commit -qm 'eval: staged' || true", stage, check=False)
+    branch = (found.get("branches") or [None])[-1] or ("psai/stage" if found.get("stage_branch") else None)
+    if branch:
+        sh(f"git merge -q --no-edit {branch}", own, check=False)
 
 
-def stack_scenarios(stack):
-    sys.path.insert(0, os.path.join(ROOT, "scripts"))
-    import resolve  # noqa: PLC0415
-    path = os.path.abspath(stack) if os.path.isdir(stack) else resolve.home().get(stack).path
-    d = os.path.join(path, "evals", "scenarios")
-    return sorted(os.path.join(d, f) for f in os.listdir(d) if f.endswith(".yaml")) if os.path.isdir(d) else []
-
-
-def run_scenario(path, tool, model, budget, keep, stack=None, prepare_only=False):
+def run_scenario(path, model, budget, keep, stack=None):
     scn = yaml.safe_load(open(path))
-    if stack:
-        scn = for_stack(scn, stack)
+    if stack:  # a stack's own scenario: that stack is loaded (and its own fixtures come first)
+        scn.setdefault("stacks", {os.path.basename(stack.rstrip("/")): stack})
+        if os.path.isdir(os.path.join(stack, "evals", "fixtures", scn["fixture"])):
+            scn["fixture"] = os.path.join(stack, "evals", "fixtures", scn["fixture"])
     phases = scn.get("phases") or [{k: scn[k] for k in ("task", "owner", "expect") if k in scn}]
     base = tempfile.mkdtemp(prefix=f"psai-eval-{scn['name']}-")
-    h, w, home = prepare(scn, base)
-    if prepare_only:  # for tests: build the run's home and fixture, run no agent
-        print(home)
-        return None
-    refs0 = remote_refs(base)
-    head0 = sh("git rev-parse HEAD", w).stdout.strip()
+    psai, stacks, own, w = prepare(scn, base)
+    refs0, head0 = remote_refs(base), sh("git rev-parse HEAD", w).stdout.strip()
     results, ok = [], True
     for ph in phases:
         open(os.path.join(base, "trace.log"), "a").write(f"phase {ph.get('name', 'main')}\n")
-        log = run_phase(tool, ph, h, w, base, model, budget, home)
-        gh = os.path.join(home, "overlay")  # what the agent changes: the overlay (your own stack)
-        branches = sh("git branch --format='%(refname:short)'", gh).stdout.split()
-        sys.path.insert(0, os.path.join(h, "scripts"))
-        found = use_staged(gh, home) if ph.get("cwd") == "harness" else {}
-        env = dict(os.environ, PSAI_HOME=home, PATH=os.path.join(base, "bin") + os.pathsep + os.environ["PATH"])
-        checks = grade.grade(ph.get("expect") or {}, log, dict(base=base, harness=gh, work=w, refs0=refs0, head0=head0,
-                                                            framework=h, state=os.path.join(home, "state"), env=env,
-                                                            remote_refs=remote_refs(base), branches=branches, staged=found))
+        has_own = os.path.isdir(os.path.join(own, "skills")) and any(
+            os.path.isfile(os.path.join(own, "skills", d, "SKILL.md")) for d in os.listdir(os.path.join(own, "skills")))
+        log = run_phase(ph, [psai] + stacks + ([own] if has_own else []), own, w, base, model, budget)
+        found = own_state(own)
+        ctx = dict(base=base, own=own, work=w, psai=psai, stacks=stacks, refs0=refs0, head0=head0, found=found,
+                   remote_refs=remote_refs(base), check=f"python3 {ROOT}/scripts/check.py")
+        if ph.get("merge"):  # the owner merges what was staged before grading (and before later phases)
+            merge_staged(own, found)
+        checks = grade.grade(ph.get("expect") or {}, log, ctx)
         ok = ok and all(c[1] for c in checks)
         tr = open(os.path.join(base, "trace.log")).read().split(f"phase {ph.get('name', 'main')}\n")[-1].splitlines()
-        traced = [t.split()[1] for t in tr if t.startswith("node ")]
         results.append({"phase": ph.get("name", "main"), "seconds": log["seconds"], "cost_usd": log["cost"],
-                        "turns": log["turns"], "path": traced or log["path"],
-                        "role_checks": [t.replace("check-diff ", "") for t in tr if t.startswith("check-diff ")], "escalations": log["escalations"],
-                        "questions": log["questions"], "reviews": log["reviews"], "unexpected": log["unexpected"],
-                        "final_message": (log["final"] or "")[-1500:],
+                        "turns": log["turns"], "path": [t.split()[1] for t in tr if t.startswith("node ")] or log["path"],
+                        "role_checks": [t.replace("check-diff ", "") for t in tr if t.startswith("check-diff ")],
+                        "escalations": log["escalations"], "questions": log["questions"], "reviews": log["reviews"],
+                        "unexpected": log["unexpected"], "own": found, "final_message": (log["final"] or "")[-1500:],
                         "checks": [{"name": n, "ok": o, "detail": d} for n, o, d in checks]})
         if not ok:
             break
-    summary = {"scenario": scn["name"], "level": scn.get("level"), "tool": tool, "model": model, "passed": ok,
+    summary = {"scenario": scn["name"], "level": scn.get("level"), "tool": "claude", "model": model, "passed": ok,
                "seconds": sum(r["seconds"] for r in results), "cost_usd": round(sum(r["cost_usd"] for r in results), 4),
                "phases": results, "workdir": base if keep else None}
-    if scn.get("level") == "L4" and ok:
-        out = os.path.join(ROOT, "evals", "results", f"{time.strftime('%Y%m%d-%H%M%S')}-{scn['name']}-{tool}-content")
-        for d in ("workflows", "steps", "roles", "guides", "templates", "instructions", "knowledge"):
-            if os.path.isdir(os.path.join(home, "overlay", d)):
-                shutil.copytree(os.path.join(home, "overlay", d), os.path.join(out, d), ignore=IGNORE)
+    if scn.get("level") == "L4" and ok and os.path.isdir(os.path.join(own, "skills")):
+        out = os.path.join(ROOT, "evals", "results", f"{time.strftime('%Y%m%d-%H%M%S')}-{scn['name']}-content")
+        shutil.copytree(own, out, ignore=IGNORE)
         summary["content_saved_to"] = os.path.relpath(out, ROOT)
     if not keep:
         shutil.rmtree(base, ignore_errors=True)
@@ -446,35 +324,32 @@ def run_scenario(path, tool, model, budget, keep, stack=None, prepare_only=False
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("scenarios", nargs="*")
-    ap.add_argument("--stack", help="run this stack's evals/scenarios with it installed (psai eval)")
-    ap.add_argument("--prepare-only", action="store_true", help=argparse.SUPPRESS)
-    ap.add_argument("--tool", default="claude", choices=sorted(TOOLS))
+    ap.add_argument("--stack", help="run this stack repo's evals/scenarios/ with it loaded")
     ap.add_argument("--model", default="sonnet")
     ap.add_argument("--runs", type=int, default=1)
-    ap.add_argument("--budget", type=float, default=8.0, help="max USD per phase (Claude Code)")
+    ap.add_argument("--budget", type=float, default=8.0, help="max USD per phase")
     ap.add_argument("--keep", action="store_true", help="keep the throwaway run directories")
     a = ap.parse_args()
+    stack = os.path.realpath(a.stack) if a.stack else None
+    if stack and not a.scenarios:
+        d = os.path.join(stack, "evals", "scenarios")
+        a.scenarios = sorted(os.path.join(d, f) for f in os.listdir(d) if f.endswith(".yaml")) if os.path.isdir(d) else []
+    if not a.scenarios:
+        ap.error("no scenarios")
     os.makedirs(os.path.join(ROOT, "evals", "results"), exist_ok=True)
-    scenarios = a.scenarios or (stack_scenarios(a.stack) if a.stack else [])
-    if not scenarios:
-        ap.error("no scenarios (a stack keeps them in evals/scenarios/)")
     allp = []
-    for s in scenarios:
+    for s in a.scenarios:
         passed = 0
         for i in range(a.runs):
-            r = run_scenario(s, a.tool, a.model, a.budget, a.keep, a.stack, a.prepare_only)
-            if r is None:
-                break
+            r = run_scenario(s, a.model, a.budget, a.keep, stack)
             passed += r["passed"]
-            stamp = time.strftime("%Y%m%d-%H%M%S")
-            with open(os.path.join(ROOT, "evals", "results", f"{stamp}-{r['scenario']}-{a.tool}.json"), "w") as f:
+            with open(os.path.join(ROOT, "evals", "results", f"{time.strftime('%Y%m%d-%H%M%S')}-{r['scenario']}.json"), "w") as f:
                 json.dump(r, f, indent=1)
             bad = [c for ph in r["phases"] for c in ph["checks"] if not c["ok"]]
-            print(f"{'PASS' if r['passed'] else 'FAIL'} {r['scenario']} [{a.tool}] run {i + 1}/{a.runs}: "
-                  f"{r['seconds']}s, ${r['cost_usd']}" + "".join(f"\n     x {c['name']}: {c['detail']}" for c in bad))
+            print(f"{'PASS' if r['passed'] else 'FAIL'} {r['scenario']} run {i + 1}/{a.runs}: {r['seconds']}s, "
+                  f"${r['cost_usd']}" + (f" (kept: {r['workdir']})" if r["workdir"] else "")
+                  + "".join(f"\n     x {c['name']}: {c['detail']}" for c in bad), flush=True)
         allp.append((os.path.basename(s), passed, a.runs))
-    if a.prepare_only:
-        return 0
     print("\npass rates:")
     for n, p, t in allp:
         print(f"  {n}: {p}/{t}")

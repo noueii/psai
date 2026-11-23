@@ -1,5 +1,0 @@
-schema: 1
-name: nostack
-version: 0.0.0
-description: "The test overlay."
-psai: ">=2.1 <4"

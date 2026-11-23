@@ -1,1 +1,0 @@
-- Sort notes oldest first.

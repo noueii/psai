@@ -1,8 +1,5 @@
 # evals/fixtures/stacks/
 
-Neutral TEST stacks for multi-stack checks (ADR 0011), never installed. `check.sh` and the eval driver build temp `PSAI_HOME`s from them: `framework/` links the psai clone, `stacks/example/` and `stacks/other/` and `overlay/` are copied from here.
-- [example/](example/README.md): one tiny `example` workflow that exercises every feature.
-- [other/](other/stack.yaml): a second stack: a `triage` workflow, always-on rules (`instructions/stack.md`), a cross-stack `read:` of `example:guides/example-rules.md`, a private (unexported) guide, and its own `change-notes` skill, which collides with example's.
-- [nostack/](nostack/stack.yaml): the overlay: `stacks.yaml` (example, other), an override of `example:guides/example-rules.md`, additive knowledge for example's `doer`, its own skill `mine` and owner rules.
-
-A new fixture stack is a folder with a `stack.yaml` (schemas/stack.schema.json) and the content folders per LAYOUT.md.
+Neutral TEST stacks, never installed for real: `scripts/check.sh` checks them and the eval driver loads them as plugins.
+- [example/](example/README.md): `workflow-example-change`, a tiny workflow that exercises every feature, plus `example-shared` (a shared role, guide and template) and `example-change-notes` (a skill a role requires).
+- [other/](other/README.md): `workflow-other-triage` (a `skill:path` read into `example-shared`, a handoff to `workflow-example-change`) and always-on rules in `other-rules`.

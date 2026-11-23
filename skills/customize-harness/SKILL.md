@@ -18,7 +18,7 @@ Ask the owner ONE question per message, with the fixed block (the `work` skill's
   mkdir -p "$S" && cp -R CH/template/. "$S/" && cd "$S"
   for f in dot-*; do mv "$f" ".${f#dot-}"; done
   grep -rl '__[A-Z]*__' . | xargs sed -i.bak -e 's/__NAME__/<name>/g' -e 's|__REPO__|<owner/name>|g' -e 's/__DESCRIPTION__/<one line>/g' -e 's/__AUTHOR__/<owner>/g'
-  find . -name '*.bak' -delete && git init -q && git add -A && git commit -qm "<name>: new psai stack"
+  find . -name '*.bak' -delete && git init -q -b main && git add -A && git commit -qm "<name>: new psai stack"
   ```
   Then offer to create the GitHub repo (`gh repo create <owner/name> --private --source "$S" --push`) and say how to install it (its README). Unless `S` is `~/psai-stack`, tell the owner to set `PSAI_STACK="$S"` in their shell profile.
 

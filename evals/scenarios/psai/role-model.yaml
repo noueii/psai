@@ -1,7 +1,7 @@
 name: role-model
 level: L3
 about: "A role with a model tier (the checker, fast) is delegated with that tier's model (Claude Code: haiku)."
-stacks: { example: [stacks/example, model-tier] }
+stacks: { example: [stacks/example, variants/model-tier] }
 fixture: textkit
 task: Add a docstring to the slugify function in textkit/text.py saying what it returns.
 owner:

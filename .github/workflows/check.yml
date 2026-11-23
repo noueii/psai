@@ -1,0 +1,19 @@
+# psai's maintainer checks: SKILL.md frontmatter, manifests, layout, the stack template, the test stacks' workflows
+# (refs, graph rules, simulator cases), check-diff.sh, trace.sh and link-skills.sh in temp HOMEs. AI evals
+# (evals/run.sh) cost money and run locally, not here.
+name: check
+on:
+  pull_request:
+  push:
+    branches: [main]
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - run: pip install pyyaml
+      - run: scripts/check.sh --upstream

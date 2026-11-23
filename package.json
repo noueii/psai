@@ -1,0 +1,13 @@
+{
+  "name": "psai",
+  "version": "4.0.0",
+  "private": true,
+  "type": "module",
+  "description": "A workflow harness made of skills: request router, workflow engine, customize-harness, capture-knowledge, retro and sync.",
+  "keywords": ["pi-package", "omp-plugin", "skills"],
+  "repository": { "type": "git", "url": "https://github.com/noueii/psai" },
+  "pi": {
+    "extensions": ["./extensions/psai.ts"],
+    "skills": ["./skills"]
+  }
+}

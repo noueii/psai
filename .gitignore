@@ -1,6 +1,5 @@
 __pycache__/
 *.pyc
+node_modules/
 evals/results/*
 !evals/results/README.md
-.skills-cache/
-.state/

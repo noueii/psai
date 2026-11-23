@@ -23,6 +23,6 @@ options: ["-" (recommended), "_"]
 ## When to escalate
 - No workflow matches a repeatable task, or you're unsure whether one does (offer `customize-harness`). A one-off with no match needs no escalation.
 - A workflow edge sends you to `escalate`, or a loop runs out of tries.
-- Anything the owner's rules in `instructions/owner.md` list.
+- Anything the rules in your stack's `*-rules` skill list.
 
 Otherwise decide. Log the decision and its reason in the final report, and add it to the knowledge inbox with the `capture-knowledge` skill.

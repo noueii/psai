@@ -1,18 +1,19 @@
 ---
 name: sync
-description: "Brings this machine in step: a deterministic out-of-sync check first (free when nothing changed), then fast-forward-only updates of your overlay and the psai framework with re-install and migrations, newer stack releases to review, adoption of tool drift by staging, and one PR per target repo with everything staged or captured. Use when a workflow reaches a `sync` node, or when the owner asks to sync or update psai."
+description: "Brings this machine in step: fast-forwards your stack's clone, updates psai and the installed stacks through each tool's own install channel, and opens one PR with everything staged. Use when a workflow reaches a sync node, or when the owner asks to sync or update psai."
 ---
 
 # sync
 
-Run `psai` as the nudge says if it isn't on PATH. Sync runs only here: when a workflow has a `sync` node or the owner asks. Nothing else updates psai.
+Sync runs only here: at a `sync` node, or when the owner asks. Nothing else updates psai. `S` is your stack and `T` its stage (the `work` skill's `your-stack.md`).
 
-1. **Check:** `psai sync check`. "in sync" means you're done: say so in one line and move on. It reports: a newer framework release, a pinned stack with a newer release in range, new commits on your overlay's remote, an install or migrations behind, sessions or staged changes not yet in a PR, and tool drift.
-2. **Update:** `psai sync update` for `behind`, `framework`, `install` or `migrations`. It fast-forwards your overlay (keeping local inbox entries) and the framework, then re-installs. Exit 4 changed nothing: stop and put "psai update waiting: needs you" with its reason in the final report (a conflict, or a framework release an installed stack doesn't support yet). Never merge, rebase or reset anything yourself, and never pass `--force` without the owner's yes.
-3. **Stacks:** for each `stack` line, `psai stack update <name>` moves its pin; report any override whose original changed (`psai stack diff <name> <path>`). Never merge an override yourself.
-4. **Drift:** `psai sync drift` lists what changed in the tools since the last scan. Adopt only what's worth keeping, by staging it in your overlay (`psai stage`):
-   - a new unmanaged skill: `psai adopt <name>`, or add it to `skills.yaml`'s `ignore:`;
-   - a rule in a global instruction file (CLAUDE.md, AGENTS.md): a proposed owner rule in `instructions/owner.md`;
-   - a durable fact in Claude's memory: an inbox entry (capture-knowledge).
-5. **PRs:** `psai sync pr --body-file <file>`, with a short summary of steps 1-4. It builds one branch per target repo with changes (your overlay, each stack you author), including waiting retro reports, pushes it where there's a remote and opens the PR. Live repos are only ever fast-forwarded.
-6. Report: in sync, updated (from..to), stacks updated, the PR branches, or "psai update waiting: needs you".
+1. **Your stack:** `git -C "$S" fetch -q origin` (skip it when there's no `origin`). When `git -C "$S" status -sb` says behind, `git -C "$S" pull --ff-only` (your uncommitted inbox entries stay). It can't fast-forward: change nothing, and put "sync waiting: needs you" with the reason in the final report. Never merge, rebase or reset yourself.
+2. **psai and the stacks you installed:** update them with the channel each came from, for the tool you run in. Run only the ones that apply:
+   - Claude Code plugin: `claude plugin marketplace update <marketplace>` then `claude plugin update <plugin>@<marketplace>`, for psai and each stack's plugin;
+   - pi: `pi update --extensions`; omp: `omp plugin upgrade`;
+   - `npx skills`: `npx skills update`;
+   - a clone linked with `scripts/link-skills.sh`: `git -C <clone> pull --ff-only`.
+
+   A command fails or isn't there: skip it and note it. The tool may need a restart to load new skills: say so.
+3. **PR:** finish the stage as `your-stack.md` says, with a short summary of steps 1-2 plus any retro report waiting in it as the PR body.
+4. **Report:** your stack (up to date, fast-forwarded from..to, or waiting), what each channel updated, the PR (or "no PR").

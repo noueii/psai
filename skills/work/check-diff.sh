@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Usage: check-diff.sh <role-brief.md> <base-commit>
+# Usage: check-diff.sh <role file> <base-commit>
 # Reads `may_change: anything|tests|nothing` from the brief's frontmatter, lists what changed since
 # <base-commit> (commits, working tree, untracked files) and exits 1 on a violation.
 # TESTS_ALLOW (an extended regex) adds repo-specific test or check paths.

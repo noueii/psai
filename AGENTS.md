@@ -1,25 +1,21 @@
 # Maintaining psai
 
-psai is a framework; content lives in stacks (docs/decisions/0011-framework-and-stacks.md). The framework ships no content folder and no stack (`check.sh --upstream` fails otherwise), nor anyone's personal setup; `template/stack/` is what `psai new-stack` copies. Test content stays neutral, in the test stacks in `evals/fixtures/stacks/`. psai's own scenarios go in `evals/scenarios/psai/`, and decisions about psai itself go in `docs/decisions/`.
+psai is a skills-only pack (docs/decisions/0012-skills-only.md): everything users get is a skill in `skills/`, and the repo itself is the package for every tool's channel. It ships no content (no workflow, rules or shared skill, no knowledge/): `scripts/check.sh --upstream` fails otherwise. Test content stays neutral, in the test stacks in `evals/fixtures/stacks/`. psai's own scenarios go in `evals/scenarios/psai/`, and decisions about psai itself go in `docs/decisions/`.
 
 ## Rules
-- **Every line costs context.** `instructions/global.md` is at most 250 words, and SKILL.md files stay short: the workflow file is the source of truth.
+- **Every line costs context.** The nudge (`skills/request-router/nudge.md`) is at most 120 words, and SKILL.md files stay short: the workflow file is the source of truth.
+- **No CLI, no runtime.** Skills tell the agent what to read and which git and gh commands to run. A script lives inside the skill that uses it, and only when it gives a real guarantee (`work/check-diff.sh`, `work/trace.sh`). Maintainer tooling (`scripts/`, `evals/`) never ships.
 - **Skills:**
   - flat `skills/<name>/SKILL.md`, with `name` equal to the folder name;
-  - quoted `description` saying what the skill does and "Use when ...";
+  - frontmatter only from the Agent Skills set (`name`, `description`, `license`, `allowed-tools`, `metadata`, `compatibility`): Agent Plugins clients reject a skill with any other key;
+  - quoted `description` saying what the skill does and "Use when ...", at most 1024 characters;
   - all model-invoked: never `disable-model-invocation`;
-  - no paths into `~/.psai` or `$PSAI_HOME`: find files by name with `psai resolve` (and `psai route`, `psai node`); only the plugins' `psai-bootstrap` lines know the home.
-- **Placement:** every folder has a README.md (what belongs there, format and naming, one example). Files go where LAYOUT.md says (inside a stack, the framework, the home). A new kind of stack file needs a LAYOUT row first.
-- **Formats:**
-  - stacks: schemas/stack.schema.json; workflows: template/stack/workflows/README.md;
-  - steps and roles: frontmatter `read:`, plus `may_change:` for roles;
-  - the fixed escalation block: skills/work/escalation.md.
+  - a skill names another skill's file as `skill:path` (or "the `work` skill's `escalation.md`"), never by an install path.
+- **Placement:** every folder outside `skills/<name>/` has a README.md (what belongs there, format and naming, one example). A stack's layout is `skills/customize-harness/LAYOUT.md`; a new kind of stack file needs a row there first.
+- **Formats:** content formats are `skills/customize-harness/FORMATS.md`; the fixed escalation block is `skills/work/escalation.md`; where your stack is, `skills/work/your-stack.md`.
+- **Manifests:** `.claude-plugin/plugin.json`, `plugin.json` and `package.json` carry the same name and version; bump all three together. Keep the nudge files (`hooks/hooks.json`, `extensions/psai.ts`) to the one job of printing the nudge.
 - **Delegation:** anything that delegates starts a FRESH agent and covers Claude Code, opencode, omp and pi.
-- **Installer:**
-  - idempotent; supports `--dry-run` and `--uninstall`;
-  - touches only its own links, import line and marked block;
-  - backs up a file before its first edit, and installs only for tools that are present.
-  - Never run it against the real HOME while testing.
+- **Never install into the real HOME while testing:** use a temp HOME, as `scripts/check.sh` does.
 
 ## Before committing
-Run `scripts/check.sh --upstream` (add `--discover` after installer or layout changes). Run `evals/run.sh` after changing `work`, `request-router`, `customize-harness`, `retro`, `sync` or the fixtures, and keep the AI evals small.
+Run `scripts/check.sh --upstream`. Run `evals/run.sh` after changing `work`, `request-router`, `customize-harness`, `retro`, `sync` or the fixtures, and keep the AI evals small.

@@ -1,0 +1,10 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "psai",
+  "version": "4.0.0",
+  "description": "A workflow harness made of skills: request router, workflow engine, customize-harness, capture-knowledge, retro and sync.",
+  "author": { "name": "noueii", "url": "https://github.com/noueii" },
+  "homepage": "https://github.com/noueii/psai",
+  "repository": "https://github.com/noueii/psai",
+  "keywords": ["skills", "workflows", "harness"]
+}

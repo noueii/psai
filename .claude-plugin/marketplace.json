@@ -1,12 +1,14 @@
 {
   "name": "psai",
-  "owner": { "name": "psai" },
-  "description": "The psai harness: injects your workflows' router into every Claude Code session.",
+  "owner": { "name": "noueii", "url": "https://github.com/noueii" },
+  "description": "psai, a workflow harness made of skills, as a Claude Code plugin.",
   "plugins": [
     {
       "name": "psai",
-      "source": "./plugins/claude",
-      "description": "Injects the live psai router (global.md, owner.md, your workflows) at session start."
+      "source": "./",
+      "description": "Request router, workflow engine, customize-harness, capture-knowledge, retro and sync, plus the always-on routing nudge.",
+      "category": "productivity",
+      "keywords": ["skills", "workflows", "harness"]
     }
   ]
 }
